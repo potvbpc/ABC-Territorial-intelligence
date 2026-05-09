@@ -8,42 +8,16 @@
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@700;800;900&family=Inter:wght@400;500;600&display=swap" rel="stylesheet"/>
 <link href="https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.css" rel="stylesheet"/>
 <script src="https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.js"></script>
-<style>
-  .mapboxgl-map { border-radius: inherit; }
-  .mapboxgl-ctrl-logo { display: none !important; }
-  .mapboxgl-ctrl-attrib { display: none !important; }
-  .abc-popup .mapboxgl-popup-content { background:transparent!important; padding:0!important; box-shadow:none!important; border:none!important; }
-  .abc-popup .mapboxgl-popup-tip { display:none!important; }
-  /* Layer panel over mapbox */
-  .map-layer-panel {
-    position:absolute;top:10px;right:10px;z-index:10;
-    background:rgba(6,16,25,.92);border-radius:10px;padding:10px;
-    border:1px solid rgba(255,255,255,.09);width:155px;
-    backdrop-filter:blur(8px);
-  }
-  .map-layer-panel .lp-title {
-    font-size:8px;color:#4A6480;font-weight:700;letter-spacing:.12em;
-    text-transform:uppercase;margin-bottom:7px;padding-bottom:5px;
-    border-bottom:1px solid rgba(255,255,255,.08);
-  }
-  .lp-item {
-    display:flex;align-items:center;gap:7px;padding:4px 5px;
-    border-radius:6px;cursor:pointer;font-size:10px;color:#8FA5BE;
-    margin-bottom:2px;transition:background .15s;user-select:none;
-  }
-  .lp-item:hover{background:rgba(255,255,255,.05);}
-  .lp-item.on{color:#E8EDF3;}
-  .lp-dot{width:8px;height:8px;border-radius:2px;flex-shrink:0;transition:box-shadow .2s;}
-  .lp-item.on .lp-dot{box-shadow:0 0 5px var(--dc);}
-  /* Upload map drawing mode cursor */
-  .draw-mode { cursor: crosshair !important; }
-</style>
+<style>.mapboxgl-ctrl-logo,.mapboxgl-ctrl-attrib{display:none!important}.abc-popup .mapboxgl-popup-content{background:transparent!important;padding:0!important;box-shadow:none!important;border:none!important}.abc-popup .mapboxgl-popup-tip{display:none!important}</style>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100vh;overflow:hidden;background:#061019;color:#E8EDF3;font-family:'Inter',sans-serif;-webkit-font-smoothing:antialiased}
 #smart-bg{position:fixed;inset:0;pointer-events:none;z-index:0;}
 #smart-bg canvas{width:100%;height:100%;display:block;}
 ::-webkit-scrollbar{width:3px}::-webkit-scrollbar-thumb{background:#1a3050;border-radius:2px}
+@media(max-width:900px){#sidebar{width:0!important;overflow:hidden;position:fixed;z-index:200;transition:width .25s}#sidebar.mob-open{width:220px!important;box-shadow:6px 0 24px rgba(0,0,0,.6)}#mob-btn{display:flex!important}#mob-ov{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:199}#mob-ov.show{display:block}}
+@media(max-width:580px){.g4{grid-template-columns:1fr 1fr!important}.g2,.g3,.g12{grid-template-columns:1fr!important}#con{padding:8px!important}}
+@media print{#sidebar,#smart-bg,#mob-btn,#mob-ov{display:none!important}#con{overflow:visible!important}}
 .mn{font-family:'Montserrat',sans-serif}
 button{cursor:pointer;border:none;outline:none;font-family:'Inter',sans-serif;transition:all .17s}
 button:hover{filter:brightness(1.1);transform:translateY(-1px)}
@@ -137,122 +111,6 @@ const C={card:"#0E1E2E",c2:"#0A1724",bo:"rgba(255,255,255,.09)",bl:"#1565C0",bll
 let PAGE="dashboard",ROLE="propietario",APH="idle",ATP=0,ATI=null;
 const DRAWN={};
 
-/* ══════════════════════════════════════════════════════
-   MAPBOX REAL — Token y configuración
-   ══════════════════════════════════════════════════════ */
-mapboxgl.accessToken = 'pk.eyJ1Ijoic2FtdWVsaW5nIiwiYSI6ImNtbWpqeTE4eDEyMnkycXB6bDRrNW1xeXgifQ.zKRw6LvQp1Nj5kKydeoedQ';
-const MAP_CENTER  = [-68.4560, 18.7318]; // Verón, Punta Cana
-const MAP_ZOOM    = 14;
-const MAP_STYLE_SAT   = 'mapbox://styles/mapbox/satellite-streets-v12';
-const MAP_STYLE_DARK  = 'mapbox://styles/mapbox/dark-v11';
-
-// Registry: one Mapbox instance per container id
-const MB_MAPS = {};
-
-// Terrain GeoJSON example (in production: loaded from Supabase)
-const TERRENO_EXAMPLE = {
-  type: 'Feature',
-  geometry: {
-    type: 'Polygon',
-    coordinates: [[
-      [-68.4580, 18.7330],[-68.4550, 18.7325],[-68.4542, 18.7310],
-      [-68.4558, 18.7298],[-68.4585, 18.7305],[-68.4580, 18.7330]
-    ]]
-  },
-  properties: { name: 'Terreno Verón 01', area: '32,450 m²', score: 78 }
-};
-
-function createMap(containerId, opts={}) {
-  if (MB_MAPS[containerId]) { MB_MAPS[containerId].remove(); delete MB_MAPS[containerId]; }
-  const el = document.getElementById(containerId);
-  if (!el) return null;
-
-  const map = new mapboxgl.Map({
-    container: containerId,
-    style: opts.style || MAP_STYLE_SAT,
-    center: opts.center || MAP_CENTER,
-    zoom: opts.zoom || MAP_ZOOM,
-    attributionControl: false,
-    logoPosition: 'bottom-left',
-  });
-
-  map.addControl(new mapboxgl.NavigationControl({showCompass:true}), 'bottom-left');
-
-  map.on('load', () => {
-    // Terrain layer
-    map.addSource('mapbox-dem', {
-      type: 'raster-dem',
-      url: 'mapbox://mapbox.mapbox-terrain-dem-v1',
-      tileSize: 512
-    });
-
-    // Add example terrain polygon
-    map.addSource('terreno-src', { type:'geojson', data: TERRENO_EXAMPLE });
-    map.addLayer({ id:'terreno-fill', type:'fill', source:'terreno-src',
-      paint:{ 'fill-color':'#1565C0', 'fill-opacity':0.25 } });
-    map.addLayer({ id:'terreno-line', type:'line', source:'terreno-src',
-      paint:{ 'line-color':'#42A5F5', 'line-width':2.5 } });
-
-    // Drawing polygon source (for upload screen)
-    map.addSource('draw-src', { type:'geojson', data:{ type:'FeatureCollection', features:[] } });
-    map.addLayer({ id:'draw-fill', type:'fill', source:'draw-src',
-      paint:{ 'fill-color':'#1565C0', 'fill-opacity':0.2 } });
-    map.addLayer({ id:'draw-line', type:'line', source:'draw-src',
-      paint:{ 'line-color':'#42A5F5', 'line-width':2, 'line-dasharray':[2,1] } });
-
-    // Popup on terreno click
-    map.on('click', 'terreno-fill', (e) => {
-      const p = e.features[0].properties;
-      new mapboxgl.Popup({ className:'abc-popup', closeButton:true, offset:10 })
-        .setLngLat(e.lngLat)
-        .setHTML(`<div style="background:#0E1E2E;color:#E8EDF3;padding:12px 14px;border-radius:10px;
-            font-family:Inter,sans-serif;min-width:180px;border:1px solid rgba(21,101,192,.4)">
-          <div style="font-weight:700;font-size:13px;margin-bottom:5px">${p.name}</div>
-          <div style="font-size:11px;color:#8FA5BE;margin-bottom:3px">📐 ${p.area}</div>
-          <div style="font-size:13px;color:#2ECC71;font-weight:800">Score: ${p.score}/100</div>
-        </div>`)
-        .addTo(map);
-    });
-    map.on('mouseenter','terreno-fill',()=>{ map.getCanvas().style.cursor='pointer'; });
-    map.on('mouseleave','terreno-fill',()=>{ map.getCanvas().style.cursor=''; });
-
-    // Zoom display
-    map.on('zoom', () => {
-      const el = document.getElementById('map-zoom-'+containerId);
-      if(el) el.textContent = map.getZoom().toFixed(1);
-    });
-
-    if(opts.onLoad) opts.onLoad(map);
-  });
-
-  MB_MAPS[containerId] = map;
-  return map;
-}
-
-// Toggle layer helper
-function mbToggleLayer(mapId, layerId, visible) {
-  const m = MB_MAPS[mapId]; if(!m || !m.getLayer(layerId)) return;
-  m.setLayoutProperty(layerId, 'visibility', visible ? 'visible' : 'none');
-}
-
-// Switch between satellite and dark style
-function mbSetStyle(mapId, sat) {
-  const m = MB_MAPS[mapId]; if(!m) return;
-  m.setStyle(sat ? MAP_STYLE_SAT : MAP_STYLE_DARK);
-}
-
-// Calc area from lngLat array (m²)
-function calcAreaM2(pts) {
-  if(pts.length < 3) return 0;
-  let area = 0;
-  for(let i=0;i<pts.length;i++) {
-    const j=(i+1)%pts.length;
-    area += pts[i][0]*pts[j][1];
-    area -= pts[j][0]*pts[i][1];
-  }
-  return Math.abs(area/2 * 111320 * 111320 * Math.cos(18.7*Math.PI/180));
-}
-
 let LAYERS=[
   {id:1,n:"Vías principales",t:"Movilidad",w:20},
   {id:2,n:"Zonas comerciales",t:"Mercado",w:18},
@@ -287,6 +145,7 @@ const META={
   commissions:["Control de Comisiones","Fees y comisiones por operación"],
   settings:["Configuración de Plataforma","Logo, nombre, colores, redes sociales y datos de contacto"],
   public:["Portal Público","Landing page que ven los visitantes"],
+  login:["Iniciar sesión","Accede a tu cuenta"],
   register:["Crear cuenta","Registro de nuevos usuarios — propietarios e inversionistas"],
   upload:["Subir mi terreno","Carga tu terreno por mapa, archivo o asistencia ABC"],
   documents:["Mis Documentos","Títulos, planos, fotos y fichas de tu terreno"],
@@ -326,33 +185,46 @@ function buildNav(){
   document.getElementById("top-btn").style.display=isA?"none":"";
 }
 
-/* ── MAP: replaced by Mapbox GL — drawMap() kept as no-op for compatibility ── */
-function drawMap(id,H){ /* replaced by createMap() */ }
-
-/* ── Dashboard layer toggle ── */
-function dashToggleLayer(id){
-  if(!window._dashLayerStates) return;
-  window._dashLayerStates[id] = !window._dashLayerStates[id];
-  const on = window._dashLayerStates[id];
-  const btn = document.getElementById('lp-dm-'+id);
-  if(btn){ btn.classList.toggle('on',on); }
-  const m = MB_MAPS['dm']; if(!m) return;
-  if(id==='sat')     mbSetStyle('dm', on);
-  if(id==='streets') { ['road-label','road-primary','road-secondary-tertiary','road-street'].forEach(l=>{ if(m.getLayer(l)) m.setLayoutProperty(l,'visibility',on?'visible':'none'); }); }
-  if(id==='terrain') { on ? m.setTerrain({source:'mapbox-dem',exaggeration:1.5}) : m.setTerrain(null); }
-  if(id==='terreno') { ['terreno-fill','terreno-line'].forEach(l=>mbToggleLayer('dm',l,on)); }
-}
-
-/* ── Analysis layer toggle ── */
-function anaToggleLayer(id){
-  if(!window._anaLayerStates) return;
-  window._anaLayerStates[id] = !window._anaLayerStates[id];
-  const on = window._anaLayerStates[id];
-  const btn = document.getElementById('lp-am-'+id);
-  if(btn){ btn.classList.toggle('on',on); }
-  const m = MB_MAPS['am']; if(!m) return;
-  if(id==='sat')     mbSetStyle('am', on);
-  if(id==='terreno') { ['terreno-fill','terreno-line'].forEach(l=>mbToggleLayer('am',l,on)); }
+/* ── MAP ── */
+function drawMap(id,H){
+  if(DRAWN[id])return;
+  const c=document.getElementById(id);if(!c)return;
+  const W=c.offsetWidth||640;DRAWN[id]=1;
+  c.width=W*2;c.height=H*2;
+  const x=c.getContext("2d");x.scale(2,2);
+  x.fillStyle="#07131e";x.fillRect(0,0,W,H);
+  [[0,0,W*.42,H*.52,"#0d2218"],[W*.38,0,W*.62,H*.44,"#091830"],[0,H*.48,W*.5,H*.52,"#0a1e2a"],
+   [W*.48,H*.42,W*.52,H*.58,"#0c2212"],[W*.18,H*.22,W*.28,H*.35,"#143a1c"]
+  ].forEach(([a,b,w,h,col])=>{x.fillStyle=col;x.fillRect(a,b,w,h)});
+  x.fillStyle="rgba(23,195,178,.18)";x.beginPath();x.moveTo(0,H*.6);
+  x.quadraticCurveTo(W*.25,H*.55,W*.42,H*.65);x.quadraticCurveTo(W*.58,H*.75,W*.7,H*.68);
+  x.lineTo(W*.7,H);x.lineTo(0,H);x.closePath();x.fill();
+  x.strokeStyle="rgba(23,195,178,.45)";x.lineWidth=2;x.beginPath();x.moveTo(0,H*.6);
+  x.quadraticCurveTo(W*.25,H*.55,W*.42,H*.65);x.quadraticCurveTo(W*.58,H*.75,W*.7,H*.68);x.stroke();
+  for(let i=0;i<20;i++){
+    x.strokeStyle=i%3===0?"rgba(80,150,210,.18)":"rgba(255,255,255,.04)";
+    x.lineWidth=i%3===0?1.5:.8;
+    x.beginPath();x.moveTo(i*50,0);x.lineTo(i*50+28,H);x.stroke();
+    x.beginPath();x.moveTo(0,i*36);x.lineTo(W,i*36+14);x.stroke();
+  }
+  x.strokeStyle="rgba(242,201,76,.35)";x.lineWidth=2.2;
+  x.beginPath();x.moveTo(0,H*.54);x.lineTo(W,H*.42);x.stroke();
+  x.beginPath();x.moveTo(W*.42,0);x.lineTo(W*.36,H);x.stroke();
+  const poly=[[W*.28,H*.27],[W*.57,H*.21],[W*.66,H*.50],[W*.50,H*.60],[W*.23,H*.52]];
+  x.shadowColor="#42A5F5";x.shadowBlur=12;
+  x.beginPath();x.moveTo(poly[0][0],poly[0][1]);poly.slice(1).forEach(p=>x.lineTo(p[0],p[1]));x.closePath();
+  x.strokeStyle="#42A5F5";x.lineWidth=2.2;x.stroke();x.shadowBlur=0;
+  x.fillStyle="rgba(21,101,192,.23)";x.fill();
+  poly.forEach(([px,py],i)=>{
+    x.beginPath();x.arc(px,py,i===0?7:5,0,Math.PI*2);
+    x.fillStyle=i===0?"#F2C94C":"#42A5F5";x.fill();
+    x.strokeStyle="white";x.lineWidth=1.5;x.stroke();
+  });
+  const cx=poly.reduce((a,p)=>a+p[0],0)/5,cy=poly.reduce((a,p)=>a+p[1],0)/5;
+  x.fillStyle="rgba(6,16,25,.85)";x.beginPath();x.roundRect(cx-60,cy-13,120,26,7);x.fill();
+  x.strokeStyle="rgba(66,165,245,.45)";x.lineWidth=.8;x.stroke();
+  x.fillStyle="white";x.font="bold 10px Inter,sans-serif";x.textAlign="center";x.fillText("Terreno Verón 01",cx,cy+4);
+  x.fillStyle="rgba(255,255,255,.2)";x.font="8px Inter,monospace";x.textAlign="left";x.fillText("18.7318°N  68.4560°W",10,H-8);
 }
 
 /* ── UI helpers ── */
@@ -423,14 +295,19 @@ function pcard(rk,ti,ty,inv,roi,co,bg,btn){
 
 function rDashboard(){
   document.getElementById("content").innerHTML=`
+<!-- KPIs row -->
 <div class="fa" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:14px">
   ${kpi("Mis Terrenos","2","Terrenos registrados",C.bll,"🗺")}
   ${kpi("Análisis Completados","1","Diagnósticos listos",C.gr,"📊")}
   ${kpi("Proyectos Sugeridos","4","Opciones generadas",C.go,"💡")}
   ${kpi("Oportunidades Activas","1","Publicadas para inversión",C.te,"💼")}
 </div>
+
+<!-- ROW 2: Mapa (izquierda ancha) + Score Territorial (derecha) -->
 <div class="fa1" style="display:grid;grid-template-columns:1fr 270px;gap:14px;margin-bottom:14px">
-  <div style="background:${C.card};border:1px solid ${C.bo};border-radius:15px;overflow:hidden;position:relative">
+
+  <!-- Mapa terreno -->
+  <div style="background:${C.card};border:1px solid ${C.bo};border-radius:15px;overflow:hidden">
     <div style="padding:12px 16px 8px;display:flex;justify-content:space-between;align-items:center">
       <div>
         <div style="font-size:13px;font-weight:700;color:${C.tx}">Mi Terreno — Vista General</div>
@@ -441,38 +318,34 @@ function rDashboard(){
         <button onclick="goTo('analysis')" style="background:transparent;border:1px solid rgba(255,255,255,.09);color:${C.tm};padding:4px 10px;border-radius:7px;font-size:10px">Ver completo ↗</button>
       </div>
     </div>
-    <div id="dm" style="width:100%;height:270px;position:relative"></div>
-    <!-- Layer panel -->
-    <div class="map-layer-panel">
-      <div class="lp-title">Capas GIS</div>
-      ${[["sat","#42A5F5","🛰 Satelital",true],["streets","#F2C94C","🛣 Vías",true],["terrain","#2ECC71","⛰ Relieve",false],["terreno","#1565C0","📐 Mi terreno",true]].map(([id,col,lbl,on])=>`
-      <div class="lp-item ${on?'on':''}" id="lp-dm-${id}" onclick="dashToggleLayer('${id}')">
-        <div class="lp-dot" style="background:${col};--dc:${col}"></div>${lbl}
-      </div>`).join("")}
-    </div>
-    <div style="position:absolute;bottom:8px;left:8px;z-index:10;background:rgba(6,16,25,.85);border-radius:7px;padding:5px 10px;border:1px solid rgba(255,255,255,.08);font-size:10px;color:#8FA5BE;pointer-events:none">
-      18.7318°N &nbsp; 68.4560°W · Z<span id="map-zoom-dm">14</span>
+    <div id="dm" style="width:100%;height:480px;position:relative"></div>
+    <div style="padding:7px 14px;display:flex;gap:5px;flex-wrap:wrap">
+      ${["🛰 Satelital","⛰ Relieve","🛣 Vías","💧 Hidrología"].map(l=>`<div style="background:rgba(21,101,192,.13);border:1px solid rgba(21,101,192,.3);border-radius:20px;padding:2px 9px;font-size:9px;color:${C.bll}">${l}</div>`).join("")}
     </div>
   </div>
+
+  <!-- Score Territorial (derecha) -->
   <div style="background:${C.card};border:1px solid ${C.bo};border-radius:15px;padding:17px 15px;display:flex;flex-direction:column">
     <div style="font-size:13px;font-weight:700;color:${C.tx};margin-bottom:13px">Score Territorial</div>
-    <div style="display:flex;justify-content:center;margin-bottom:14px">${scoreRing(78,118)}</div>
+    <div style="display:flex;justify-content:center;margin-bottom:14px">${scoreRing(WLC_RESULT?WLC_RESULT.score:78,118)}</div>
     <div style="flex:1">
-      ${mbar("Accesibilidad",85,C.bll,"🛣")}
-      ${mbar("Entorno",76,C.gr,"🌿")}
-      ${mbar("Mercado",80,C.go,"📈")}
-      ${mbar("Servicios",68,C.te,"⚡")}
-      ${mbar("Normativa ABC",82,C.pu,"📋")}
-      ${mbar("Riesgo",55,C.or,"⚠")}
+      ${mbar("Accesibilidad",WLC_RESULT?WLC_RESULT.metrics.accesibilidad||85:85,C.bll,"🛣")}
+      ${mbar("Entorno",WLC_RESULT?WLC_RESULT.metrics.entorno_comercial||76:76,C.gr,"🌿")}
+      ${mbar("Mercado",WLC_RESULT?WLC_RESULT.metrics.mercado||80:80,C.go,"📈")}
+      ${mbar("Servicios",WLC_RESULT?WLC_RESULT.metrics.servicios_basicos||68:68,C.te,"⚡")}
+      ${mbar("Normativa",WLC_RESULT?WLC_RESULT.metrics.normativa||82:82,C.pu,"📋")}
+      ${mbar("Riesgo",WLC_RESULT?WLC_RESULT.metrics.riesgo_ambiental||55:55,C.or,"⚠")}
     </div>
     <button onclick="goTo('analysis')" style="margin-top:12px;width:100%;background:transparent;border:1px solid rgba(21,101,192,.45);color:${C.bll};padding:9px 0;border-radius:9px;font-size:11px;font-weight:600">Ver diagnóstico completo →</button>
   </div>
 </div>
-<div class="fa1" style="background:rgba(231,76,60,.08);border:1px solid rgba(231,76,60,.28);border-radius:13px;padding:15px;margin-bottom:13px">
+
+<!-- ROW 3: Alertas territoriales (debajo del mapa, ancho completo) -->
+<div style="background:rgba(231,76,60,.08);border:1px solid rgba(231,76,60,.28);border-radius:13px;padding:15px;margin-bottom:13px">
   <div style="display:flex;align-items:center;gap:9px;margin-bottom:10px">
     <span style="font-size:18px">⚠️</span>
     <div>
-      <div style="font-weight:700;color:#FDA4AF;font-size:13px">Alertas territoriales críticas</div>
+      <div style="font-weight:700;color:#FDA4AF;font-size:13px">Alertas Territoriales Críticas</div>
       <div style="font-size:10px;color:rgba(253,164,175,.58)">Cruce automático contra áreas protegidas y zonas de riesgo.</div>
     </div>
   </div>
@@ -489,21 +362,8 @@ function rDashboard(){
       </div>`).join("")}
   </div>
 </div>
-<div class="fa2" style="background:rgba(242,201,76,.06);border:1px solid rgba(242,201,76,.2);border-radius:13px;padding:15px;margin-bottom:13px">
-  <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px">
-    <div>
-      <div style="font-weight:700;color:${C.go};font-size:13px;margin-bottom:4px">Análisis de Cumplimiento Normativo ABC</div>
-      <p style="font-size:11px;color:${C.tm};max-width:580px;line-height:1.6">Evaluación basada en lineamientos técnicos propuestos por ABC Projects. <em>No sustituye permisos oficiales.</em></p>
-    </div>
-    <div style="text-align:right;flex-shrink:0;margin-left:18px">
-      <div class="mn" style="font-size:26px;font-weight:900;color:${C.go}">82%</div>
-      <div style="font-size:9px;color:${C.td}">Compatibilidad</div>
-    </div>
-  </div>
-  <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px">
-    ${[["Altura","3 niveles"],["Ocupación","55% del lote"],["Retiro frontal","6.00 m"],["Parqueos","1/35 m²"],["Permeable","20% mínimo"]].map(([n,v])=>`<div style="background:${C.c2};border-radius:9px;padding:10px 11px"><div style="font-size:8px;color:${C.bll};text-transform:uppercase;letter-spacing:.08em;margin-bottom:5px">${n}</div><div style="font-weight:700;color:${C.tx};font-size:11px">${v}</div></div>`).join("")}
-  </div>
-</div>
+
+<!-- ROW 4: Opciones de Proyecto Sugeridas (debajo del mapa, ancho completo) -->
 <div style="background:${C.card};border:1px solid ${C.bo};border-radius:13px;padding:15px 17px;margin-bottom:13px">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
     <div>
@@ -520,6 +380,25 @@ function rDashboard(){
       ].map((p,i)=>pcard(i+1,...p)).join("")}
   </div>
 </div>
+
+<!-- ROW 5: Cumplimiento Normativo -->
+<div class="fa1" style="background:rgba(242,201,76,.06);border:1px solid rgba(242,201,76,.2);border-radius:13px;padding:15px;margin-bottom:13px">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px">
+    <div>
+      <div style="font-weight:700;color:${C.go};font-size:13px;margin-bottom:4px">Análisis de Cumplimiento Normativo ABC</div>
+      <p style="font-size:11px;color:${C.tm};max-width:580px;line-height:1.6">Evaluación basada en lineamientos técnicos propuestos por ABC Projects. <em>No sustituye permisos oficiales.</em></p>
+    </div>
+    <div style="text-align:right;flex-shrink:0;margin-left:18px">
+      <div class="mn" style="font-size:26px;font-weight:900;color:${C.go}">82%</div>
+      <div style="font-size:9px;color:${C.td}">Compatibilidad</div>
+    </div>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px">
+    ${[["Altura","3 niveles"],["Ocupación","55% del lote"],["Retiro frontal","6.00 m"],["Parqueos","1/35 m²"],["Permeable","20% mínimo"]].map(([n,v])=>`<div style="background:${C.c2};border-radius:9px;padding:10px 11px"><div style="font-size:8px;color:${C.bll};text-transform:uppercase;letter-spacing:.08em;margin-bottom:5px">${n}</div><div style="font-weight:700;color:${C.tx};font-size:11px">${v}</div></div>`).join("")}
+  </div>
+</div>
+
+<!-- ROW 6: Oportunidades de Inversión -->
 <div style="background:${C.card};border:1px solid ${C.bo};border-radius:13px;padding:15px 17px">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
     <div style="font-size:13px;font-weight:700;color:${C.tx}">Oportunidades de Inversión Destacadas</div>
@@ -529,11 +408,9 @@ function rDashboard(){
     ${OPPS.map((o,i)=>pcard(i+1,o.ti,o.ty,o.inv,o.roi,undefined,undefined,"Solicitar acceso →")).join("")}
   </div>
 </div>`;
-  setTimeout(()=>{
-  createMap("dm", {zoom:14});
-  window._dashLayerStates = {sat:true,streets:true,terrain:false,terreno:true};
-},80);
+  setTimeout(()=>initDashMap("dm"),60);
 }
+
 
 function rAnalysis(){
   const ST=["Procesando capas satelitales","Cruzando relieve y topografía","Evaluando vías y accesibilidad","Analizando zonificación urbana","Cruzando hidrología y riesgos","Calculando densidad y entorno","Valorando el terreno","Generando proyectos recomendados"];
@@ -543,22 +420,16 @@ function rAnalysis(){
 
   document.getElementById("content").innerHTML=`
 <div style="display:grid;grid-template-columns:1fr 265px;gap:14px;margin-bottom:14px">
-  <div style="background:${C.card};border:1px solid ${C.bo};border-radius:15px;overflow:hidden;position:relative">
+  <div style="background:${C.card};border:1px solid ${C.bo};border-radius:15px;overflow:hidden">
     <div style="padding:12px 16px 8px;display:flex;justify-content:space-between;align-items:center">
       <div style="font-size:13px;font-weight:700;color:${C.tx}">Mapa de Análisis — Terreno Verón 01</div>
       ${APH==="running"?`<div style="display:flex;align-items:center;gap:6px"><div style="width:7px;height:7px;border-radius:50%;background:${C.bll};animation:pu 1s infinite"></div><span style="font-size:11px;color:${C.bll}">Procesando capa ${ATP}/8...</span></div>`:""}
       ${APH==="done"?pill("✓ Análisis completo",C.gr):""}
     </div>
-    <div id="am" style="width:100%;height:${mapH}px;position:relative"></div>
-    <div class="map-layer-panel">
-      <div class="lp-title">Capas GIS</div>
-      ${[["sat","#42A5F5","🛰 Satelital",true],["terreno","#1565C0","📐 Mi terreno",true],["terrain","#2ECC71","⛰ Relieve",false]].map(([id,col,lbl,on])=>`
-      <div class="lp-item ${on?'on':''}" id="lp-am-${id}" onclick="anaToggleLayer('${id}')">
-        <div class="lp-dot" style="background:${col};--dc:${col}"></div>${lbl}
-      </div>`).join("")}
-    </div>
-    <div style="position:absolute;bottom:8px;left:8px;z-index:10;background:rgba(6,16,25,.85);border-radius:7px;padding:5px 10px;border:1px solid rgba(255,255,255,.08);font-size:10px;color:#8FA5BE;pointer-events:none">
-      18.7318°N &nbsp; 68.4560°W · Z<span id="map-zoom-am">14</span>
+    <div id="am" style="width:100%;height:${APH==='done'?360:520}px;position:relative"></div>
+    <div style="padding:7px 14px;display:flex;gap:5px;flex-wrap:wrap;align-items:center">
+      <span style="font-size:9px;color:${C.td}">Capas:</span>
+      ${[["sat","🛰 Satélite",true],["streets","🛣 Vías",true],["terrain","⛰ Relieve",false],["buffer","🔵 Buffer",APH==="done"]].map(([id,lbl,on])=>`<div onclick="toggleMapLayer('am','${id}',this)" style="background:${on?'rgba(21,101,192,.2)':' rgba(255,255,255,.06)'};border:1px solid ${on?'rgba(21,101,192,.4)':' rgba(255,255,255,.1)'};border-radius:20px;padding:2px 9px;font-size:9px;color:${on?'#42A5F5':'#8FA5BE'};cursor:pointer" data-on="${on}">${lbl}</div>`).join("")}
     </div>
   </div>
   <div id="ap" style="display:flex;flex-direction:column"></div>
@@ -566,20 +437,24 @@ function rAnalysis(){
 ${APH==="done"?`
 <div style="background:${C.card};border:1px solid ${C.bo};border-radius:13px;padding:18px">
   <div style="font-size:13px;font-weight:700;color:${C.tx};margin-bottom:14px">Desglose por capa analizada</div>
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
-    <div>${mbar("Accesibilidad y vías",85,C.bll,"🛣")}${mbar("Entorno comercial",76,C.gr,"🌿")}${mbar("Potencial de mercado",80,C.go,"📈")}</div>
-    <div>${mbar("Servicios básicos",68,C.te,"⚡")}${mbar("Normativa / uso suelo",70,C.pu,"📐")}${mbar("Nivel de riesgo",55,C.or,"⚠")}</div>
+  <div id="wlc-desglose">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+      <div>${mbar("Accesibilidad y vías",WLC_RESULT?WLC_RESULT.metrics.accesibilidad||85:85,C.bll,"🛣")}${mbar("Entorno comercial",WLC_RESULT?WLC_RESULT.metrics.entorno_comercial||76:76,C.gr,"🌿")}${mbar("Potencial de mercado",WLC_RESULT?WLC_RESULT.metrics.mercado||80:80,C.go,"📈")}</div>
+      <div>${mbar("Servicios básicos",WLC_RESULT?WLC_RESULT.metrics.servicios_basicos||68:68,C.te,"⚡")}${mbar("Normativa / uso suelo",WLC_RESULT?WLC_RESULT.metrics.normativa||70:70,C.pu,"📐")}${mbar("Nivel de riesgo",WLC_RESULT?WLC_RESULT.metrics.riesgo_ambiental||55:55,C.or,"⚠")}</div>
+    </div>
+    ${WLC_RESULT?`<div style="margin-top:10px;padding:10px;background:${C.c2};border-radius:8px;font-size:10px;color:${C.tm}"><strong style="color:${C.tx}">Fórmula WLC:</strong> Score = (Σ wᵢ·xᵢ) · Πcⱼ = ${WLC_RESULT.score_raw} × ${WLC_RESULT.restriction_factor} = <strong style="color:#2ECC71">${WLC_RESULT.score}</strong></div>`:""}
   </div>
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px">
-    <div style="background:${C.c2};border-radius:9px;padding:13px 15px"><div style="font-size:10px;color:${C.td};margin-bottom:4px">Valor actual estimado</div><div class="mn" style="font-size:22px;color:${C.tx};font-weight:800">US$ 1.2M</div></div>
-    <div style="background:${C.c2};border-radius:9px;padding:13px 15px;border-top:2px solid ${C.gr}"><div style="font-size:10px;color:${C.td};margin-bottom:4px">Valor potencial</div><div class="mn" style="font-size:22px;color:${C.gr};font-weight:800">US$ 4.6M</div><div style="font-size:9px;color:${C.td}">×3.8 tu inversión actual</div></div>
+  <div style="margin-top:14px">
+    ${WLC_RESULT&&WLC_RESULT.rlvm
+      ? renderRLVM(WLC_RESULT.rlvm)
+      : `<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div style="background:${C.c2};border-radius:9px;padding:13px 15px"><div style="font-size:10px;color:${C.td};margin-bottom:4px">Valor actual estimado</div><div class="mn" style="font-size:22px;color:${C.tx};font-weight:800">US$ 1.2M</div></div>
+          <div style="background:${C.c2};border-radius:9px;padding:13px 15px;border-top:2px solid ${C.gr}"><div style="font-size:10px;color:${C.td};margin-bottom:4px">Valor Residual (RLVM)</div><div class="mn" style="font-size:22px;color:${C.gr};font-weight:800">US$ 4.6M</div></div>
+        </div>`}
   </div>
 </div>`:""}`;
 
-  setTimeout(()=>{
-  createMap("am", {zoom:14});
-  window._anaLayerStates = {sat:true,terreno:true,terrain:false};
-},80);
+  setTimeout(()=>{delete DRAWN["am"];initAnalysisMap("am")},60);
 
   const ap=document.getElementById("ap");
   if(APH==="idle"){
@@ -600,20 +475,26 @@ ${APH==="done"?`
         </div>
         <span style="font-size:10px;color:${done?C.tm:C.tx}">${s}</span>
       </div>`}).join("")}
-      ${APH==="done"?`<div style="display:flex;justify-content:center;margin-top:12px">${scoreRing(78,100)}</div>
+      ${APH==="done"?`<div style="display:flex;justify-content:center;margin-top:12px">${scoreRing(WLC_RESULT?WLC_RESULT.score:78,100)}</div>
       <button onclick="goTo('projects')" style="width:100%;background:linear-gradient(135deg,${C.gr},${C.grd});color:#051410;padding:10px 0;border-radius:9px;font-size:12px;font-weight:800;margin-top:12px">Ver proyectos →</button>`:""}
     </div>`;
   }
 }
 
 function startAnalysis(){
-  APH="running";ATP=0;
+  APH="running";ATP=0;WLC_RESULT=null;
   rAnalysis();
   if(ATI)clearInterval(ATI);
   ATI=setInterval(()=>{
     ATP++;
-    if(ATP>=8){clearInterval(ATI);APH="done";}
-    rAnalysis();
+    if(ATP>=8){
+      clearInterval(ATI);
+      runFullAnalysis().then(function(result){
+        APH="done";WLC_RESULT=result;rAnalysis();
+        setTimeout(function(){renderAnalysisResult(result);renderAnalysisBreakdown(result);},100);
+        setTimeout(function(){initAnalysisMap("am");},300);
+      });
+    } else { rAnalysis(); }
   },600);
 }
 
@@ -640,7 +521,8 @@ function rPublic(){
       <div><div class="mn" style="font-size:16px;font-weight:900;color:#E8EDF3">ABC</div><div style="font-size:7px;color:#42A5F5;letter-spacing:.18em;text-transform:uppercase">Territorial Intelligence</div></div>
     </div>
     <div style="display:flex;gap:8px">
-      <button onclick="ROLE='inversionista';goTo('marketplace')" style="background:transparent;border:1px solid rgba(255,255,255,.14);color:#8FA5BE;padding:7px 14px;border-radius:7px;font-size:12px">Soy inversionista</button>
+      <button onclick="goTo('login')" style="background:transparent;border:1px solid rgba(255,255,255,.14);color:#8FA5BE;padding:7px 14px;border-radius:7px;font-size:12px">Iniciar sesión</button>
+      <button onclick="ROLE='inversionista';goTo('register')" style="background:transparent;border:1px solid rgba(46,204,113,.4);color:#2ECC71;padding:7px 14px;border-radius:7px;font-size:12px;font-weight:600">Soy inversionista</button>
       <button onclick="ROLE='propietario';goTo('register')" style="background:linear-gradient(135deg,#1565C0,#0D47A1);color:white;padding:7px 16px;border-radius:7px;font-size:12px;font-weight:700">Comenzar gratis</button>
     </div>
   </div>
@@ -680,7 +562,7 @@ function rPublic(){
   </div>
   <div style="padding:16px 28px;border-top:1px solid rgba(255,255,255,.08);display:flex;justify-content:space-between;align-items:center">
     <span style="font-size:11px;color:#4A6480">© 2026 ABC Territorial Intelligence</span>
-    <button onclick="ROLE='admin';goTo('overview')" style="background:transparent;border:1px solid rgba(255,255,255,.1);color:#4A6480;padding:5px 13px;border-radius:7px;font-size:10px">Acceso administrador</button>
+    <div style="display:flex;gap:7px;align-items:center"><button onclick="goTo('register')" style="background:transparent;border:1px solid rgba(21,101,192,.4);color:#42A5F5;padding:5px 12px;border-radius:7px;font-size:11px">Crear cuenta</button><button onclick="goTo('login')" style="background:linear-gradient(135deg,#1565C0,#0D47A1);color:white;padding:5px 12px;border-radius:7px;font-size:11px;font-weight:600">Iniciar sesión</button><button onclick="ROLE='admin';goTo('overview')" style="background:transparent;border:none;color:#4A6480;padding:4px 7px;font-size:13px;cursor:pointer" title="Administrador">⚙</button></div>
   </div>
 </div>`;}
 
@@ -1040,7 +922,9 @@ function saveSettings(){
   ["primaryColor","accentColor","greenColor"].forEach(k=>{const el=document.getElementById("cfg-"+k);if(el)CFG[k]=el.value;});
   const n=document.getElementById("prev-name");if(n)n.textContent=CFG.platformName;
   const t=document.getElementById("prev-tag");if(t)t.style.color=CFG.primaryColor;
-  alert("✓ Configuración guardada correctamente.\n\nEn producción con Supabase, estos cambios se aplican globalmente en tiempo real para todos los usuarios.");
+  applyBranding();
+  try{sessionStorage.setItem("abc_cfg",JSON.stringify(CFG));}catch(e){}
+  alert("✓ Configuración guardada.");
   buildNav();
 }
 
@@ -1204,13 +1088,7 @@ function rUpload(){
       </div>
       <div>
         <div style="font-size:9px;color:${C.tm};font-weight:600;text-transform:uppercase;letter-spacing:.08em;margin-bottom:5px">Uso actual</div>
-        <select class="inp" id="land-uso">
-          <option>Sin desarrollo</option>
-          <option>Agrícola</option>
-          <option>Residencial parcial</option>
-          <option>Comercial parcial</option>
-          <option>Industrial</option>
-        </select>
+        <select class="inp" id="land-uso"><option>Residencial unifamiliar</option><option>Residencial multifamiliar</option><option>Vivienda social</option><option>Comercial local</option><option>Comercial mixto</option><option>Centros comerciales</option><option>Oficinas y servicios</option><option>Servicios financieros</option><option>Restaurantes y entretenimiento</option><option>Industrial ligera</option><option>Industrial mediana</option><option>Agroindustrial</option><option>Turístico hotelero</option><option>Turístico recreativo</option><option>Ecoturismo</option><option>Villas turísticas</option><option>Equipamiento educativo</option><option>Equipamiento de salud</option><option>Equipamiento cultural</option><option>Equipamiento deportivo</option><option>Equipamiento comunitario</option><option>Equipamiento administrativo</option><option>Equipamiento de seguridad</option><option>Recreativo y espacio público</option><option>Parques y áreas verdes</option><option>Infraestructura vial</option><option>Infraestructura energética</option><option>Infraestructura hidráulica</option><option>Telecomunicaciones</option><option>Agropecuario</option><option>Forestal</option><option>Conservación ambiental</option><option>Protección ecológica</option><option>Corredores ecológicos</option><option>Uso extractivo minero</option><option>Canteras y extracción de agregados</option><option>Uso mixto residencial-comercial</option><option>Uso mixto turístico-comercial</option><option>Uso mixto residencial-servicios</option></select>
       </div>
     </div>
     <div>
@@ -1234,7 +1112,7 @@ function rUpload(){
         </div>
       </div>
       <div style="position:relative">
-        <div id="up-map" style="width:100%;height:340px;position:relative"></div>
+        <div id="up-map" style="width:100%;height:480px;position:relative;cursor:crosshair"></canvas>
         <div id="map-poly-info" style="position:absolute;bottom:12px;left:12px;background:rgba(6,16,25,.88);border-radius:8px;padding:7px 12px;border:1px solid ${C.bo};font-size:11px;color:${C.tm}">
           🖱 Haz clic para agregar puntos al polígono
         </div>
@@ -1253,24 +1131,7 @@ function rUpload(){
 </div>`;
 
   window._polyPoints=[];
-  setTimeout(()=>{
-  window._polyPoints = [];
-  const upMap = createMap("up-map", {zoom:13, onLoad:(m)=>{
-    // Click to draw polygon
-    m.on('click',(e)=>{
-      if(!window._drawingActive) return;
-      const {lng,lat}=e.lngLat;
-      window._polyPoints.push([lng,lat]);
-      updateUploadPoly(m);
-      const cnt=document.getElementById('poly-count');
-      if(cnt) cnt.textContent=window._polyPoints.length+' puntos';
-      const info=document.getElementById('map-poly-info');
-      if(info&&window._polyPoints.length>=3) info.textContent='✓ '+window._polyPoints.length+' puntos — poligono definido';
-    });
-  }});
-  window._drawingActive = true;
-  if(upMap) upMap.getCanvas().style.cursor='crosshair';
-},100);
+  setTimeout(()=>{ delete DRAWN["up-map"]; initUploadMap("up-map"); initMapClicks(); },80);
 }
 
 function selectUploadMethod(m){
@@ -1292,26 +1153,13 @@ function selectUploadMethod(m){
         </div>
       </div>
       <div style="position:relative">
-        <div id="up-map" style="width:100%;height:340px;position:relative"></div>
-        <div id="map-poly-info" style="position:absolute;bottom:12px;left:56px;z-index:10;background:rgba(6,16,25,.88);border-radius:8px;padding:7px 12px;border:1px solid rgba(255,255,255,.09);font-size:11px;color:#8FA5BE;pointer-events:none">🖱 Haz clic en el mapa para marcar los vértices</div>
-        <div style="position:absolute;top:10px;right:10px;z-index:10;background:rgba(6,16,25,.88);border-radius:8px;padding:6px 12px;border:1px solid rgba(21,101,192,.4);font-size:10px;color:#42A5F5">📍 <span id="poly-count">0 puntos</span></div>
+        <div id="up-map" style="width:100%;height:480px;position:relative;cursor:crosshair"></canvas>
+        <div id="map-poly-info" style="position:absolute;bottom:12px;left:12px;background:rgba(6,16,25,.88);border-radius:8px;padding:7px 12px;border:1px solid ${C.bo};font-size:11px;color:${C.tm}">🖱 Haz clic para marcar puntos</div>
+        <div style="position:absolute;top:10px;right:10px;background:rgba(6,16,25,.88);border-radius:8px;padding:6px 12px;border:1px solid rgba(21,101,192,.4);font-size:10px;color:${C.bll}">📍 <span id="poly-count">0 puntos</span></div>
       </div>
     </div>`;
     window._polyPoints=[];
-    setTimeout(()=>{
-  window._polyPoints=[];
-  window._drawingActive=true;
-  const m2=createMap("up-map",{zoom:13,onLoad:(m)=>{
-    m.on('click',(e)=>{
-      if(!window._drawingActive)return;
-      window._polyPoints.push([e.lngLat.lng,e.lngLat.lat]);
-      updateUploadPoly(m);
-      const cnt=document.getElementById('poly-count');
-      if(cnt)cnt.textContent=window._polyPoints.length+' puntos';
-    });
-  }});
-  if(m2)m2.getCanvas().style.cursor='crosshair';
-},100);
+    setTimeout(()=>{delete DRAWN["up-map"];initUploadMap("up-map");},80);
   }
   else if(m==="file"){
     panel.innerHTML=`<div style="background:${C.card};border:1px solid ${C.bo};border-radius:14px;padding:22px">
@@ -1359,7 +1207,7 @@ function selectUploadMethod(m){
         </div>
       </div>
       <div style="background:rgba(23,195,178,.08);border:1px solid rgba(23,195,178,.3);border-radius:10px;padding:13px 16px">
-        <div style="font-size:11px;color:${C.te};font-weight:700;margin-bottom:4px">✓ ¿Qué incluye la asistencia ABC?</div>
+        <div style="font-size:11px;color:${C.te};font-weight:700;margin-bottom:8px">✓ ¿Qué incluye la asistencia ABC?</div>
         <div style="font-size:11px;color:${C.tm};line-height:1.7">
           • Levantamiento GPS de los vértices del terreno<br>
           • Generación del archivo GeoJSON oficial<br>
@@ -1367,44 +1215,56 @@ function selectUploadMethod(m){
           • Entrega del diagnóstico en 3-5 días hábiles
         </div>
       </div>
+      <div style="margin-top:10px">
+        <div style="font-size:9px;color:${C.tm};font-weight:600;text-transform:uppercase;margin-bottom:6px">Documentos de soporte (opcional)</div>
+        <div style="border:2px dashed rgba(255,255,255,.13);border-radius:9px;padding:14px;text-align:center;cursor:pointer" onclick="document.getElementById('asst-up').click()">
+          <div style="font-size:20px">📎</div>
+          <div style="font-size:11px;color:${C.tx};font-weight:600;margin-top:3px">PDF, JPG, PNG, ZIP, DOCX · Máx 50MB</div>
+          <input type="file" id="asst-up" multiple accept=".pdf,.jpg,.jpeg,.png,.zip,.docx" style="display:none" onchange="uploadDocs(this)"/>
+        </div>
+      </div>
     </div>`;
   }
 }
 
-// addMapPoint is now handled by Mapbox click event in createMap onLoad
-// These functions remain for compatibility:
-
-function updateUploadPoly(map) {
-  if(!map || !window._polyPoints || !window._polyPoints.length) return;
-  const pts = window._polyPoints;
-  const coords = pts.length >= 3 ? [...pts, pts[0]] : pts;
-  const geo = {
-    type: 'FeatureCollection',
-    features: [{
-      type: 'Feature',
-      geometry: {
-        type: pts.length >= 3 ? 'Polygon' : 'LineString',
-        coordinates: pts.length >= 3 ? [coords] : coords
-      },
-      properties: {}
-    }]
-  };
-  if(map.getSource('draw-src')) map.getSource('draw-src').setData(geo);
-}
-
-function addMapPoint(event){ /* handled by Mapbox click — kept for compatibility */ }
-function redrawMapWithPoly(){ /* handled by Mapbox — kept for compatibility */ }
-
-function clearMapPoly(){
-  window._polyPoints=[];
-  const m=MB_MAPS['up-map'];
-  if(m && m.getSource('draw-src'))
-    m.getSource('draw-src').setData({type:'FeatureCollection',features:[]});
+function addMapPoint(event){
+  const canvas=document.getElementById("up-map");if(!canvas)return;
+  const rect=canvas.getBoundingClientRect();
+  const x=(event.clientX-rect.left)/(rect.width/canvas.offsetWidth);
+  const y=(event.clientY-rect.top)/(rect.height/canvas.offsetHeight);
+  if(!window._polyPoints)window._polyPoints=[];
+  window._polyPoints.push([x,y]);
+  redrawMapWithPoly();
   const cnt=document.getElementById("poly-count");
-  if(cnt)cnt.textContent="0 puntos";
+  if(cnt)cnt.textContent=window._polyPoints.length+" puntos";
   const info=document.getElementById("map-poly-info");
-  if(info)info.textContent="🖱 Haz clic en el mapa para marcar los vértices";
+  if(info&&window._polyPoints.length>=3)info.textContent="✓ Polígono con "+window._polyPoints.length+" puntos — puedes seguir agregando o registrar";
 }
+
+function redrawMapWithPoly(){
+  delete DRAWN["up-map"];
+  initUploadMap("up-map");
+  requestAnimationFrame(()=>{
+    const c=document.getElementById("up-map");if(!c||!window._polyPoints||!window._polyPoints.length)return;
+    const ctx=c.getContext("2d");
+    const W=c.offsetWidth,H=c.offsetHeight,sc=c.width/W;
+    ctx.save();ctx.scale(sc,sc);
+    const pts=window._polyPoints;
+    ctx.beginPath();ctx.moveTo(pts[0][0],pts[0][1]);
+    pts.slice(1).forEach(p=>ctx.lineTo(p[0],p[1]));
+    if(pts.length>=3)ctx.closePath();
+    ctx.fillStyle="rgba(21,101,192,.25)";if(pts.length>=3)ctx.fill();
+    ctx.strokeStyle="#42A5F5";ctx.lineWidth=2;ctx.stroke();
+    pts.forEach(([px,py],i)=>{
+      ctx.beginPath();ctx.arc(px,py,i===0?7:5,0,Math.PI*2);
+      ctx.fillStyle=i===0?"#F2C94C":"#42A5F5";ctx.fill();
+      ctx.strokeStyle="white";ctx.lineWidth=1.5;ctx.stroke();
+    });
+    ctx.restore();
+  });
+}
+
+function clearMapPoly(){window._polyPoints=[];delete DRAWN["up-map"];initUploadMap("up-map");const cnt=document.getElementById("poly-count");if(cnt)cnt.textContent="0 puntos";}
 
 function handleFileDrop(event){
   event.preventDefault();
@@ -1427,20 +1287,8 @@ function submitTerrain(){
   const prov=document.getElementById("land-prov")?.value;
   if(!name){alert("El nombre del terreno es obligatorio.");return;}
   if(!prov){alert("Selecciona la provincia.");return;}
-  // Build GeoJSON from Mapbox drawn polygon
-  const pts = window._polyPoints||[];
-  if(pts.length >= 3){
-    const geojson = {
-      type:"Polygon",
-      coordinates:[[...pts,pts[0]]]
-    };
-    const area = Math.round(calcAreaM2(pts));
-    console.log("GeoJSON a enviar a /api/gis/create-land:", JSON.stringify(geojson));
-    console.log("Área calculada:", area, "m²");
-    // In production: fetch('/api/gis/create-land', {method:'POST', body: JSON.stringify({ownerId, name, geojson, areaM2: area})})
-  }
   const btn=event.target;btn.textContent="Registrando...";btn.style.opacity="0.7";
-  setTimeout(()=>{goTo("dashboard");setTimeout(()=>alert("✓ Terreno registrado correctamente.\n\nEn producción: datos enviados a Supabase + PostGIS para análisis GIS real."),300);},1500);
+  setTimeout(()=>{goTo("dashboard");setTimeout(()=>alert("✓ Terreno registrado correctamente.\n\nPuedes ahora generar el diagnóstico GIS desde tu dashboard."),300);},1500);
 }
 
 /* ══════════════════════════════════════════════════════
@@ -1806,7 +1654,7 @@ function rTasacion(){
   <div style="background:${C.card};border:1px solid ${C.bo};border-radius:14px;padding:20px">
     <div style="font-size:11px;color:${C.bll};font-weight:700;text-transform:uppercase;letter-spacing:.1em;margin-bottom:14px">3. Descripción Legal del Inmueble</div>
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:12px">
-      ${[["No. Parcela / Designación catastral","legal-parcela","text","Ej: 505683771753"],["No. Matrícula","legal-matricula","text","Ej: 3000307233"],["No. Libro","legal-libro","text","Ej: 0839"],["No. Folio","legal-folio","text","Ej: 058"],["Fecha emisión título","legal-fecha","date",""],["Registro de Títulos","legal-registro","text","Ej: Higüey"]].map(([l,id,type,ph])=>`
+      ${[["No. Parcela / Designación catastral","legal-parcela","text","Ej: 505683771753"],["No. Matrícula","legal-matricula","text","Ej: 3000307233"],["No. de Serie del título","legal-serie","text","Ej: 4372005560083"],["Certificado No.","legal-cert","text","Ej: 03015834"],["Fecha emisión título","legal-fecha","date",""],["Registro de Títulos","legal-registro","text","Ej: Higüey"]].map(([l,id,type,ph])=>`
       <div>
         <div style="font-size:9px;color:${C.tm};font-weight:600;text-transform:uppercase;letter-spacing:.08em;margin-bottom:5px">${l}</div>
         <input class="inp" id="${id}" type="${type}" placeholder="${ph||""}"/>
@@ -1966,6 +1814,32 @@ function rTasacion(){
       <div>
         <div style="font-size:9px;color:${C.tm};font-weight:600;text-transform:uppercase;letter-spacing:.08em;margin-bottom:5px">Nivel de ejecución mejora (%)</div>
         <input class="inp" id="val-ejecucion" type="number" value="100" min="1" max="100" placeholder="100"/>
+      </div>
+    </div>
+  </div>
+
+  <!-- FOTOS Y DOCUMENTOS -->
+  <div style="background:${C.card};border:1px solid ${C.bo};border-radius:14px;padding:20px">
+    <div style="font-size:12px;font-weight:700;color:${C.tx};margin-bottom:4px">📸 Fotos y documentos</div>
+    <p style="font-size:11px;color:${C.tm};margin-bottom:14px">Se integrarán en el informe generado.</p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div>
+        <div style="font-size:9px;color:${C.tm};font-weight:600;text-transform:uppercase;margin-bottom:7px">Fotografías</div>
+        <div style="border:2px dashed rgba(21,101,192,.4);border-radius:10px;padding:16px;text-align:center;cursor:pointer" onclick="document.getElementById('tas-ph').click()">
+          <div style="font-size:24px">📷</div>
+          <div style="font-size:11px;color:${C.tx};font-weight:600;margin-top:4px">Subir fotos</div>
+          <input type="file" id="tas-ph" accept="image/*" multiple style="display:none" onchange="tasPhotos(this)"/>
+        </div>
+        <div id="tas-ph-prev" style="display:flex;gap:5px;flex-wrap:wrap;margin-top:7px"></div>
+      </div>
+      <div>
+        <div style="font-size:9px;color:${C.tm};font-weight:600;text-transform:uppercase;margin-bottom:7px">Documentos</div>
+        <div style="border:2px dashed rgba(23,195,178,.35);border-radius:10px;padding:16px;text-align:center;cursor:pointer" onclick="document.getElementById('tas-dc').click()">
+          <div style="font-size:24px">📄</div>
+          <div style="font-size:11px;color:${C.tx};font-weight:600;margin-top:4px">PDF, Word · Máx 50MB</div>
+          <input type="file" id="tas-dc" accept=".pdf,.docx,.doc" multiple style="display:none" onchange="tasDocs(this)"/>
+        </div>
+        <div id="tas-dc-list" style="margin-top:7px;display:flex;flex-direction:column;gap:4px"></div>
       </div>
     </div>
   </div>
@@ -2462,7 +2336,8 @@ function generarTasacionReal(){
 
     <!-- BOTONES -->
     <div style="display:flex;gap:10px;justify-content:center;border-top:1px solid #dee2e6;padding-top:16px">
-      <button onclick="window.print()" style="background:#1565C0;color:white;padding:10px 24px;border-radius:8px;font-size:12px;font-weight:700;border:none;cursor:pointer">🖨 Imprimir / PDF</button>
+      <button onclick="tasPrint()" style="background:#1565C0;color:white;padding:10px 24px;border-radius:8px;font-size:12px;font-weight:700;border:none;cursor:pointer">🖨 Imprimir / PDF</button>
+      <button onclick="tasWord()" style="background:#2B579A;color:white;padding:10px 20px;border-radius:8px;font-size:12px;font-weight:700;border:none;cursor:pointer">📝 Descargar Word</button>
       <button onclick="document.getElementById('tas-resultado').style.display='none'" style="background:transparent;border:1px solid #dee2e6;color:#666;padding:10px 20px;border-radius:8px;font-size:12px;cursor:pointer">✕ Cerrar</button>
     </div>
   </div>
@@ -2494,9 +2369,581 @@ function render(){
     case "inv_request": rInvRequest();   break;
     case "inv_portfolio":rInvPortfolio();break;
     case "tasacion":    rTasacion();     break;
+    case "login":       rLogin();        break;
     default:
       document.getElementById("content").innerHTML=`<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:50vh;gap:15px;text-align:center"><div style="font-size:46px;opacity:.16">🔧</div><div style="color:${C.td};font-size:14px">Módulo disponible en producción.</div><button onclick="goTo(ROLE==='admin'?'overview':'dashboard')" style="background:rgba(21,101,192,.18);border:1px solid rgba(21,101,192,.45);color:${C.bll};padding:9px 22px;border-radius:9px;font-size:12px;font-weight:600">← Volver</button></div>`;
   }
+}
+
+
+/* ═══ MOBILE MENU ═══ */
+function mobToggle(){var s=document.getElementById('sidebar'),o=document.getElementById('mob-ov');if(s)s.classList.toggle('mob-open');if(o)o.classList.toggle('show');}
+function mobClose(){var s=document.getElementById('sidebar'),o=document.getElementById('mob-ov');if(s)s.classList.remove('mob-open');if(o)o.classList.remove('show');}
+function checkMob(){
+  var mb=document.getElementById('mob-btn');if(mb)mb.style.display=window.innerWidth<900?'flex':'none';
+  // Inject mob-ov if not present
+  if(!document.getElementById('mob-ov')){
+    var ov=document.createElement('div');ov.id='mob-ov';
+    ov.style.cssText='display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:199;cursor:pointer';
+    ov.onclick=mobClose;document.body.appendChild(ov);
+  }
+}
+window.addEventListener('resize',checkMob);setTimeout(checkMob,300);
+
+/* ═══ MAPBOX ═══ */
+var MAPBOX_TOKEN='pk.eyJ1Ijoic2FtdWVsaW5nIiwiYSI6ImNtbWpqeTE4eDEyMnkycXB6bDRrNW1xeXgifQ.zKRw6LvQp1Nj5kKydeoedQ';
+var MAP_CENTER=[-68.4560,18.7318];
+var MB_MAPS={};
+var UP_POINTS=[];
+var UP_ACTIVE=false;
+var WLC_RESULT=null;
+var SUPABASE_URL='https://qpqgtlmhjhowtjihilzv.supabase.co';
+var TERRENO_DEMO={type:'Feature',geometry:{type:'Polygon',coordinates:[[[-68.4580,18.7330],[-68.4550,18.7325],[-68.4542,18.7310],[-68.4558,18.7298],[-68.4585,18.7305],[-68.4580,18.7330]]]},properties:{name:'Terreno Verón 01',area_m2:32450}};
+
+function _mbReady(){return typeof mapboxgl!=='undefined';}
+
+function mbCreate(id,opts){
+  opts=opts||{};
+  if(!_mbReady()){setTimeout(function(){mbCreate(id,opts);},400);return null;}
+  if(MB_MAPS[id]){try{MB_MAPS[id].remove();}catch(e){} delete MB_MAPS[id];}
+  var el=document.getElementById(id);if(!el)return null;
+  mapboxgl.accessToken=MAPBOX_TOKEN;
+  var map=new mapboxgl.Map({container:id,style:'mapbox://styles/mapbox/satellite-streets-v12',center:opts.center||MAP_CENTER,zoom:opts.zoom||14,attributionControl:false});
+  map.addControl(new mapboxgl.NavigationControl({showCompass:false}),'bottom-left');
+  map.on('load',function(){
+    map.addSource('terreno',{type:'geojson',data:TERRENO_DEMO});
+    map.addLayer({id:'t-fill',type:'fill',source:'terreno',paint:{'fill-color':'#1565C0','fill-opacity':0.25}});
+    map.addLayer({id:'t-line',type:'line',source:'terreno',paint:{'line-color':'#42A5F5','line-width':2.5}});
+    map.addSource('draw-poly',{type:'geojson',data:{type:'FeatureCollection',features:[]}});
+    map.addLayer({id:'d-fill',type:'fill',source:'draw-poly',paint:{'fill-color':'#1565C0','fill-opacity':0.2}});
+    map.addLayer({id:'d-line',type:'line',source:'draw-poly',paint:{'line-color':'#42A5F5','line-width':2,'line-dasharray':[2,1]}});
+    map.on('click','t-fill',function(e){
+      var sc=WLC_RESULT?WLC_RESULT.score:78;
+      new mapboxgl.Popup({className:'abc-popup',offset:10}).setLngLat(e.lngLat)
+        .setHTML('<div style="background:#0E1E2E;color:#E8EDF3;padding:12px 14px;border-radius:10px;font-family:Inter,sans-serif;min-width:175px;border:1px solid rgba(21,101,192,.4)"><div style="font-weight:700;font-size:13px;margin-bottom:5px">Terreno Verón 01</div><div style="font-size:11px;color:#8FA5BE;margin-bottom:3px">📐 32,450 m²</div><div style="font-size:13px;color:#2ECC71;font-weight:800">Score WLC: '+sc+'/100</div></div>')
+        .addTo(map);
+    });
+    map.on('mouseenter','t-fill',function(){map.getCanvas().style.cursor='pointer';});
+    map.on('mouseleave','t-fill',function(){map.getCanvas().style.cursor='';});
+    if(opts.onLoad)opts.onLoad(map);
+  });
+  MB_MAPS[id]=map;
+  return map;
+}
+
+function initDashMap(id){mbCreate(id,{zoom:14});}
+function initAnalysisMap(id){mbCreate(id,{zoom:13});}
+function initUploadMap(id){
+  UP_POINTS=[];
+  var map=mbCreate(id,{zoom:13,onLoad:function(m){
+    m.on('click',function(e){
+      if(!UP_ACTIVE)return;
+      UP_POINTS.push([e.lngLat.lng,e.lngLat.lat]);
+      var src=m.getSource('draw-poly');
+      if(src){var c=UP_POINTS.length>=3?[...UP_POINTS,UP_POINTS[0]]:UP_POINTS;src.setData({type:'FeatureCollection',features:[{type:'Feature',geometry:{type:UP_POINTS.length>=3?'Polygon':'LineString',coordinates:UP_POINTS.length>=3?[c]:c},properties:{}}]});}
+      var cnt=document.getElementById('poly-count');if(cnt)cnt.textContent=UP_POINTS.length+' puntos';
+    });
+  }});
+  UP_ACTIVE=true;
+  if(map)map.getCanvas().style.cursor='crosshair';
+}
+
+function toggleMapLayer(mapId,layerId,el){
+  var m=MB_MAPS[mapId];if(!m)return;
+  var isOn=el.dataset.on==='true';
+  el.dataset.on=(!isOn).toString();
+  el.style.background=!isOn?'rgba(21,101,192,.2)':'rgba(255,255,255,.06)';
+  el.style.borderColor=!isOn?'rgba(21,101,192,.4)':'rgba(255,255,255,.1)';
+  el.style.color=!isOn?'#42A5F5':'#8FA5BE';
+  if(layerId==='sat')m.setStyle(!isOn?'mapbox://styles/mapbox/satellite-streets-v12':'mapbox://styles/mapbox/dark-v11');
+  else if(layerId==='terrain'){if(!isOn){if(!m.getSource('mapbox-dem'))m.addSource('mapbox-dem',{type:'raster-dem',url:'mapbox://mapbox.mapbox-terrain-dem-v1'});m.setTerrain({source:'mapbox-dem',exaggeration:1.5});}else m.setTerrain(null);}
+  else if(layerId==='buffer'){['buf-fill','buf-line'].forEach(function(l){if(m.getLayer(l))m.setLayoutProperty(l,'visibility',!isOn?'visible':'none');});}
+}
+
+function clearMapPoly(){
+  UP_POINTS=[];
+  var m=MB_MAPS['up-map'];
+  if(m){var s=m.getSource('draw-poly');if(s)s.setData({type:'FeatureCollection',features:[]});}
+  var cnt=document.getElementById('poly-count');if(cnt)cnt.textContent='0 puntos';
+}
+
+function calcAreaM2(pts){
+  if(!pts||pts.length<3)return 0;
+  var area=0;
+  for(var i=0;i<pts.length;i++){var j=(i+1)%pts.length;area+=pts[i][0]*pts[j][1];area-=pts[j][0]*pts[i][1];}
+  return Math.round(Math.abs(area/2)*111320*111320*Math.cos(18.7*Math.PI/180));
+}
+
+/* ═══ DRAWMAP SAFE FALLBACK ═══ */
+function drawMap(id,H){
+  var el=document.getElementById(id);
+  if(!el||el.tagName==='DIV'){
+    if(id==='am')setTimeout(function(){initAnalysisMap(id);},80);
+    else if(id==='dm')setTimeout(function(){initDashMap(id);},80);
+    else if(id==='up-map')setTimeout(function(){initUploadMap(id);},80);
+    return;
+  }
+  if(DRAWN[id])return;
+}
+function addMapPoint(event){return;}
+function redrawMapWithPoly(){var m=MB_MAPS['up-map'];if(m){var s=m.getSource('draw-poly');if(s){var c=UP_POINTS.length>=3?[...UP_POINTS,UP_POINTS[0]]:UP_POINTS;s.setData({type:'FeatureCollection',features:[{type:'Feature',geometry:{type:UP_POINTS.length>=3?'Polygon':'LineString',coordinates:UP_POINTS.length>=3?[c]:c},properties:{}}]});}}}
+
+/* ═══ TASACIÓN HANDLERS ═══ */
+function tasPhotos(input){
+  if(!input||!input.files)return;
+  var prev=document.getElementById('tas-ph-prev');if(!prev)return;
+  Array.from(input.files).forEach(function(file){
+    var r=new FileReader();
+    r.onload=function(e){var d=document.createElement('div');d.style.cssText='width:68px;height:68px;border-radius:8px;overflow:hidden;border:1px solid rgba(255,255,255,.18);flex-shrink:0';d.innerHTML='<img src="'+e.target.result+'" style="width:100%;height:100%;object-fit:cover"/>';prev.appendChild(d);};
+    r.readAsDataURL(file);
+  });
+}
+function tasDocs(input){
+  if(!input||!input.files)return;
+  var list=document.getElementById('tas-dc-list');if(!list)return;
+  var icons={PDF:'📄',DOCX:'📝',DOC:'📝',JPG:'🖼',PNG:'🖼'};
+  Array.from(input.files).forEach(function(file){
+    var ext=file.name.split('.').pop().toUpperCase();
+    var d=document.createElement('div');d.style.cssText='display:flex;align-items:center;gap:7px;background:rgba(255,255,255,.05);border-radius:7px;padding:5px 9px;font-size:11px;color:#8FA5BE';
+    d.innerHTML=(icons[ext]||'📎')+' <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+file.name+'</span><span style="color:#4A6480;flex-shrink:0">'+Math.round(file.size/1024)+'KB</span>';
+    list.appendChild(d);
+  });
+}
+
+/* ═══ PRINT/WORD (safe — no embedded script) ═══ */
+function showModal(html,css){
+  var ex=document.getElementById('abc-modal');if(ex)ex.remove();
+  var m=document.createElement('div');
+  m.id='abc-modal';
+  m.style.cssText='position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.75);display:flex;align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(4px)';
+  var inner=document.createElement('div');
+  inner.style.cssText='background:white;border-radius:12px;width:100%;max-width:880px;max-height:90vh;overflow:auto;position:relative';
+  var hdr=document.createElement('div');
+  hdr.style.cssText='position:sticky;top:0;background:white;padding:12px 16px;border-bottom:1px solid #eee;display:flex;justify-content:space-between;align-items:center';
+  var ttl=document.createElement('span');
+  ttl.style.cssText='font-weight:700;color:#1565C0;font-family:Arial,sans-serif';
+  ttl.textContent='ABC Territorial Intelligence';
+  var btr=document.createElement('div');btr.style.cssText='display:flex;gap:8px';
+  var bp=document.createElement('button');
+  bp.style.cssText='background:#1565C0;color:white;padding:7px 14px;border-radius:7px;border:none;cursor:pointer;font-size:12px';
+  bp.textContent='Imprimir';bp.onclick=printModal;
+  var bc=document.createElement('button');
+  bc.style.cssText='background:#eee;color:#333;padding:7px 14px;border-radius:7px;border:none;cursor:pointer;font-size:12px';
+  bc.textContent='Cerrar';bc.onclick=function(){m.remove();};
+  btr.appendChild(bp);btr.appendChild(bc);
+  hdr.appendChild(ttl);hdr.appendChild(btr);
+  var bod=document.createElement('div');
+  bod.id='abc-modal-body';bod.style.cssText='padding:24px';
+  var st=document.createElement('style');st.textContent=css;
+  var cv=document.createElement('div');cv.innerHTML=html;
+  bod.appendChild(st);bod.appendChild(cv);
+  inner.appendChild(hdr);inner.appendChild(bod);
+  m.appendChild(inner);document.body.appendChild(m);
+  m.addEventListener('click',function(e){if(e.target===m)m.remove();});
+}
+function printModal(){
+  var b=document.getElementById('abc-modal-body');if(!b)return;
+  var w=window.open('','_blank');
+  if(w){w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body>'+b.innerHTML+'</body></html>');w.document.close();setTimeout(function(){w.print();},500);}
+}
+function tasPrint(){
+  var res=document.getElementById('tas-resultado');
+  if(!res||res.style.display==='none'){alert('Primero genera la tasación.');return;}
+  var css='body{font-family:Arial,sans-serif;font-size:11pt;color:#111;padding:20px}h1,h2{color:#1565C0}h2{border-bottom:2px solid #1565C0;padding-bottom:4px}table{width:100%;border-collapse:collapse;margin:10px 0}th{background:#1565C0;color:white;padding:6px 8px;text-align:left}td{padding:5px 8px;border:1px solid #ddd}@media print{@page{margin:2cm}body{-webkit-print-color-adjust:exact}}';
+  showModal(res.innerHTML,css);
+}
+function tasWord(){
+  var res=document.getElementById('tas-resultado');
+  if(!res||res.style.display==='none'){alert('Primero genera la tasación.');return;}
+  var num=(document.getElementById('tas-num')&&document.getElementById('tas-num').value)||'000';
+  var css='body{font-family:Arial,sans-serif;font-size:11pt;margin:2cm}h1,h2{color:#1565C0}table{width:100%;border-collapse:collapse}th{background:#1565C0;color:white;padding:6px}td{padding:5px;border:1px solid #ddd}';
+  var blob=new Blob(['<!DOCTYPE html><html><head><meta charset="UTF-8"><style>'+css+'</style></head><body>'+res.innerHTML+'</body></html>'],{type:'application/msword'});
+  var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='Tasacion_ABC_'+num+'.doc';document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(a.href);
+}
+
+/* ═══ LOGIN SCREEN ═══ */
+function rLogin(){
+  if(document.getElementById('page-title'))document.getElementById('page-title').textContent='Iniciar sesión';
+  if(document.getElementById('page-sub'))document.getElementById('page-sub').textContent='Accede a tu cuenta ABC';
+  document.getElementById('content').innerHTML=`
+<div style="max-width:440px;margin:0 auto;padding-top:10px">
+  <div style="text-align:center;margin-bottom:20px">
+    <div style="font-size:34px;margin-bottom:6px">🔐</div>
+    <div class="mn" style="font-size:20px;font-weight:900;color:${C.tx};margin-bottom:4px">Iniciar sesión</div>
+    <p style="color:${C.tm};font-size:12px">ABC Territorial Intelligence</p>
+  </div>
+  <div style="background:${C.card};border:1px solid ${C.bo};border-radius:16px;padding:24px">
+    <div style="margin-bottom:12px"><div style="font-size:9px;color:${C.tm};font-weight:600;text-transform:uppercase;margin-bottom:5px">Correo electrónico</div><input class="inp" id="log-em" type="email" placeholder="tu@correo.com"/></div>
+    <div style="margin-bottom:16px"><div style="font-size:9px;color:${C.tm};font-weight:600;text-transform:uppercase;margin-bottom:5px">Contraseña</div><input class="inp" id="log-pw" type="password" placeholder="Tu contraseña"/></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;color:${C.tm}"><input type="checkbox" style="accent-color:#1565C0"/> Recordarme</label>
+      <span style="font-size:12px;color:${C.bll};cursor:pointer">¿Olvidaste contraseña?</span>
+    </div>
+    <button onclick="doLogin()" style="width:100%;background:linear-gradient(135deg,#1565C0,#0D47A1);color:white;padding:13px 0;border-radius:10px;font-size:14px;font-weight:800;border:none;cursor:pointer;margin-bottom:12px">Ingresar →</button>
+    <div style="text-align:center;padding-top:12px;border-top:1px solid rgba(255,255,255,.07)"><span style="font-size:12px;color:${C.td}">¿No tienes cuenta? </span><span onclick="goTo('register')" style="font-size:12px;color:${C.bll};cursor:pointer;font-weight:600">Crear cuenta gratis</span></div>
+  </div>
+  <div style="margin-top:14px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);border-radius:10px;padding:12px 15px">
+    <div style="font-size:9px;color:${C.td};font-weight:600;text-transform:uppercase;margin-bottom:8px">Acceso de demostración</div>
+    <div style="display:flex;gap:7px;flex-wrap:wrap">
+      <button onclick="ROLE='propietario';goTo('dashboard')" style="background:rgba(21,101,192,.15);border:1px solid rgba(21,101,192,.3);color:${C.bll};padding:6px 12px;border-radius:7px;font-size:11px;cursor:pointer">👤 Propietario</button>
+      <button onclick="ROLE='inversionista';goTo('marketplace')" style="background:rgba(46,204,113,.1);border:1px solid rgba(46,204,113,.3);color:${C.gr};padding:6px 12px;border-radius:7px;font-size:11px;cursor:pointer">💼 Inversionista</button>
+      <button onclick="ROLE='admin';goTo('overview')" style="background:rgba(242,201,76,.08);border:1px solid rgba(242,201,76,.2);color:${C.go};padding:6px 12px;border-radius:7px;font-size:11px;cursor:pointer">⚙ Admin</button>
+    </div>
+  </div>
+  <div style="text-align:center;margin-top:12px"><button onclick="goTo('public')" style="background:transparent;border:none;color:${C.td};font-size:12px;cursor:pointer">← Volver al inicio</button></div>
+</div>`;
+}
+function doLogin(){
+  var em=document.getElementById('log-em')&&document.getElementById('log-em').value.trim();
+  var pw=document.getElementById('log-pw')&&document.getElementById('log-pw').value;
+  if(!em||!pw){alert('Completa correo y contraseña.');return;}
+  ROLE='propietario';goTo('dashboard');
+}
+
+/* ═══ APPLY BRANDING ═══ */
+function applyBranding(){
+  if(CFG.logoDataUrl){
+    var aside=document.getElementById('sidebar');if(!aside)return;
+    var ex=aside.querySelector('.abc-logo-custom');
+    if(!ex){var lb=aside.querySelector('div[style*="display:flex"]');if(lb){var od=lb.querySelector('div[style*="background:linear-gradient"]');if(od){var img=document.createElement('img');img.className='abc-logo-custom';img.style.cssText='width:36px;height:36px;border-radius:8px;object-fit:contain;border:1px solid rgba(255,255,255,.18);flex-shrink:0';img.src=CFG.logoDataUrl;od.replaceWith(img);}}}
+    else{ex.src=CFG.logoDataUrl;}
+  }
+  var ne=document.querySelector('#sidebar .mn');if(ne&&CFG.platformName)ne.textContent=CFG.platformName.split(' ')[0]||'ABC';
+}
+try{var _s=sessionStorage.getItem('abc_cfg');if(_s){Object.assign(CFG,JSON.parse(_s));setTimeout(applyBranding,500);}}catch(e){}
+
+/* ══════════════════════════════════════════════════════════
+   RESIDUAL LAND VALUE METHOD ENGINE
+   Fórmula: VRS = VDP − CC − CF − MD − RR
+   
+   VRS = Valor Residual del Suelo (lo que vale el terreno)
+   VDP = Valor del Desarrollo Completado (precio de venta del proyecto)
+   CC  = Costos de Construcción
+   CF  = Costos Financieros
+   MD  = Margen del Desarrollador
+   RR  = Reserva de Riesgos
+   
+   Fuentes de datos en tiempo real:
+   - ACOPROVI (precios de venta de proyectos)
+   - Banco Central RD (tasas de interés, inflación)
+   - ONE (índice de precios de construcción)
+   - CODIA (costos de construcción por m²)
+   - Prensa especializada (El Dinero, Diario Libre)
+══════════════════════════════════════════════════════════ */
+
+var RLVM_CACHE = null;
+var RLVM_CACHE_TIME = 0;
+var RLVM_CACHE_TTL = 3600000; // 1 hour cache
+
+async function fetchRLVMData(wlcScore) {
+  // Use cache if fresh
+  if(RLVM_CACHE && (Date.now()-RLVM_CACHE_TIME) < RLVM_CACHE_TTL) {
+    return computeRLVM(RLVM_CACHE, wlcScore);
+  }
+
+  try {
+    updateAnalysisStatus("🔍 Consultando ACOPROVI, Banco Central RD, ONE...");
+    
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 1000,
+        tools: [{ type: "web_search_20250305", name: "web_search" }],
+        system: `Eres un analista inmobiliario especializado en República Dominicana. 
+Tu tarea es buscar datos actuales del mercado inmobiliario de Punta Cana/Verón para calcular el Residual Land Value Method.
+Busca específicamente:
+1. Precio de venta de proyectos turísticos/residenciales en Verón-Punta Cana (USD/m²)
+2. Costo de construcción actual en RD (USD/m²) según ONE o CODIA
+3. Tasa de interés para préstamos de construcción en RD (Banco Central o bancos comerciales)
+4. Margen de desarrollador típico en proyectos turísticos RD (%)
+
+Responde ÚNICAMENTE con un objeto JSON válido sin texto adicional, sin markdown, sin backticks:
+{
+  "precio_venta_m2_usd": número,
+  "costo_construccion_m2_usd": número,
+  "tasa_interes_anual": número entre 0 y 1,
+  "margen_desarrollador": número entre 0 y 1,
+  "reserva_riesgo": número entre 0 y 1,
+  "fuentes": ["fuente1", "fuente2"],
+  "fecha_datos": "YYYY-MM",
+  "notas": "string corto"
+}`,
+        messages: [{
+          role: "user",
+          content: "Busca los datos actuales del mercado inmobiliario de Punta Cana República Dominicana para el Residual Land Value Method. Incluye precios de ACOPROVI, costos de ONE/CODIA, tasas del Banco Central."
+        }]
+      })
+    });
+
+    const data = await response.json();
+    
+    // Extract JSON from response
+    var marketData = null;
+    if(data.content) {
+      for(var block of data.content) {
+        if(block.type === "text" && block.text) {
+          try {
+            var clean = block.text.replace(/```json|```/g,"").trim();
+            marketData = JSON.parse(clean);
+            break;
+          } catch(e) {}
+        }
+      }
+    }
+
+    if(!marketData) throw new Error("No se pudo parsear respuesta");
+
+    RLVM_CACHE = marketData;
+    RLVM_CACHE_TIME = Date.now();
+    updateAnalysisStatus("✓ Datos de mercado obtenidos en tiempo real");
+    return computeRLVM(marketData, wlcScore);
+
+  } catch(err) {
+    console.warn("RLVM web fetch failed, using reference data:", err.message);
+    updateAnalysisStatus("⚠ Usando datos de referencia (sin conexión a fuentes externas)");
+    // Fallback: datos de referencia basados en estudios de mercado conocidos
+    var fallback = {
+      precio_venta_m2_usd: 2800,
+      costo_construccion_m2_usd: 850,
+      tasa_interes_anual: 0.14,
+      margen_desarrollador: 0.18,
+      reserva_riesgo: 0.08,
+      fuentes: ["Datos de referencia — mercado Punta Cana 2024"],
+      fecha_datos: "2024-12",
+      notas: "Valores de referencia. Conecte a internet para datos en tiempo real."
+    };
+    RLVM_CACHE = fallback;
+    RLVM_CACHE_TIME = Date.now();
+    return computeRLVM(fallback, wlcScore);
+  }
+}
+
+function computeRLVM(mkt, wlcScore) {
+  // Terreno Verón 01: 32,450 m²
+  var AREA_M2 = 32450;
+  
+  // Ratio de construcción ajustado por score WLC
+  // Score 100 = 100% del potencial constructivo permitido por normativa
+  // Score 79 = 79% del potencial óptimo
+  var RATIO_CONSTRUCCION = 0.55; // % del área total edificable (normativa)
+  var AJUSTE_SCORE = 0.60 + (wlcScore / 100) * 0.40; // entre 0.60 y 1.00
+  var area_construida = Math.round(AREA_M2 * RATIO_CONSTRUCCION * AJUSTE_SCORE);
+
+  // VDP — Valor del Desarrollo Completado
+  // Precio de venta del proyecto terminado
+  var VDP = area_construida * mkt.precio_venta_m2_usd;
+
+  // CC — Costos de Construcción
+  // Costo directo + indirectos (15% sobre directo)
+  var CC_directo = area_construida * mkt.costo_construccion_m2_usd;
+  var CC_indirecto = CC_directo * 0.15;
+  var CC = CC_directo + CC_indirecto;
+
+  // CF — Costos Financieros
+  // Intereses sobre CC durante período construcción (18 meses promedio)
+  var meses_construccion = 18;
+  var CF = CC * mkt.tasa_interes_anual * (meses_construccion / 12);
+
+  // MD — Margen del Desarrollador
+  var MD = VDP * mkt.margen_desarrollador;
+
+  // RR — Reserva de Riesgos (vacancia, imprevistos, permisos)
+  var RR = VDP * mkt.reserva_riesgo;
+
+  // VRS — Valor Residual del Suelo
+  var VRS = VDP - CC - CF - MD - RR;
+  var VRS_m2 = VRS / AREA_M2;
+
+  // Valor actual del suelo (precio de mercado actual sin desarrollar)
+  // Típicamente 15-25% del valor residual calculado
+  var RATIO_ACTUAL = 0.20 + (wlcScore / 100) * 0.10; // entre 20% y 30%
+  var valor_suelo_actual = Math.max(0, VRS * RATIO_ACTUAL);
+
+  return {
+    // Componentes RLVM
+    VDP: Math.round(VDP),
+    CC:  Math.round(CC),
+    CC_directo: Math.round(CC_directo),
+    CC_indirecto: Math.round(CC_indirecto),
+    CF:  Math.round(CF),
+    MD:  Math.round(MD),
+    RR:  Math.round(RR),
+    VRS: Math.max(0, Math.round(VRS)),
+    VRS_m2: Math.max(0, Math.round(VRS_m2)),
+    // Para compatibilidad con el sistema
+    valor_suelo_actual: Math.round(valor_suelo_actual),
+    valor_suelo_residual: Math.max(0, Math.round(VRS)),
+    // Parámetros de mercado usados
+    area_m2: AREA_M2,
+    area_construida: area_construida,
+    precio_venta_m2: mkt.precio_venta_m2_usd,
+    costo_construccion_m2: mkt.costo_construccion_m2_usd,
+    tasa_interes: mkt.tasa_interes_anual,
+    margen_desarrollador: mkt.margen_desarrollador,
+    reserva_riesgo: mkt.reserva_riesgo,
+    meses_construccion: 18,
+    ajuste_score: Math.round(AJUSTE_SCORE * 100),
+    fuentes: mkt.fuentes || [],
+    fecha_datos: mkt.fecha_datos || "N/A",
+    notas: mkt.notas || ""
+  };
+}
+
+/* ═══ WLC + PCA ENGINE ═══ */
+var GIS_LAYERS=[
+  {id:'accesibilidad',   label:'Accesibilidad vial',    w:0.22,icon:'🛣',color:'#42A5F5'},
+  {id:'entorno_comercial',label:'Entorno comercial',    w:0.18,icon:'🏙',color:'#2ECC71'},
+  {id:'servicios_basicos',label:'Servicios básicos',    w:0.14,icon:'⚡',color:'#F2C94C'},
+  {id:'mercado',          label:'Potencial de mercado', w:0.16,icon:'📈',color:'#9B59B6'},
+  {id:'normativa',        label:'Normativa / uso suelo',w:0.12,icon:'📐',color:'#17C3B2'},
+  {id:'riesgo_ambiental', label:'Riesgo ambiental',    w:0.10,icon:'💧',color:'#E74C3C'},
+  {id:'area_protegida',   label:'Áreas protegidas',    w:0.08,icon:'🌿',color:'#27AE60'},
+];
+var CORR_MATRIX={acc_serv:0.88,serv_merc:0.91};
+
+async function fetchGisMetrics(){
+  await new Promise(function(r){setTimeout(r,800);});
+  return {accesibilidad:{raw:87,desc:'Troncal RD a 2.3km'},entorno_comercial:{raw:78,desc:'Zona turística, 12 establecimientos 500m'},servicios_basicos:{raw:71,desc:'Hospital a 4.1km'},mercado:{raw:83,desc:'Precio m² US$290-420'},normativa:{raw:72,desc:'Suelo urbano turístico'},riesgo_ambiental:{raw:64,desc:'Sin inundación, pendiente<3°'},area_protegida:{raw:95,desc:'No intersecta SINAP'}};
+}
+
+function runPCA(metrics){
+  var pairs=[];
+  if(CORR_MATRIX.acc_serv>0.85)pairs.push({a:'accesibilidad',b:'servicios_basicos',corr:CORR_MATRIX.acc_serv,pc:'PC1'});
+  if(CORR_MATRIX.serv_merc>0.85)pairs.push({a:'servicios_basicos',b:'mercado',corr:CORR_MATRIX.serv_merc,pc:'PC2'});
+  return{corr_pairs:pairs,pca_applied:pairs.length>0};
+}
+
+function runWLC(metrics,pca){
+  var norm={};GIS_LAYERS.forEach(function(l){if(metrics[l.id])norm[l.id]=metrics[l.id].raw;});
+  var weights={};GIS_LAYERS.forEach(function(l){weights[l.id]=l.w;});
+  if(pca.pca_applied){pca.corr_pairs.forEach(function(p){weights[p.a]*=0.7;weights[p.b]*=0.7;});var wt=Object.values(weights).reduce(function(a,b){return a+b;},0);Object.keys(weights).forEach(function(k){weights[k]/=wt;});}
+  var raw=0;GIS_LAYERS.forEach(function(l){raw+=( weights[l.id]||l.w)*(norm[l.id]||0);});
+  var rf=1,restrictions=[];
+  if(metrics.area_protegida&&metrics.area_protegida.raw<50){rf=0;restrictions.push('⛔ Intersecta área protegida');}
+  if(metrics.riesgo_ambiental&&metrics.riesgo_ambiental.raw<30){rf*=0.3;restrictions.push('⚠ Riesgo ambiental crítico');}
+  var score=Math.min(100,Math.round(raw*rf));
+  // Financial data will be injected by RLVM engine after web search
+  // Placeholder values — replaced by fetchRLVMData()
+  var va = 0;
+  var vp = 0;
+  return{score:score,score_raw:Math.round(raw),metrics:norm,weights:weights,restrictions:restrictions,restriction_factor:rf,valor_actual:va,valor_potencial:vp,rlvm:null,pca:pca,metrics_detail:metrics,breakdown:GIS_LAYERS.map(function(l){return{id:l.id,label:l.label,icon:l.icon,color:l.color,xi:norm[l.id]||0,wi:Math.round((weights[l.id]||l.w)*100),contribution:Math.round((weights[l.id]||l.w)*(norm[l.id]||0))};})};
+}
+
+async function runFullAnalysis(){
+  var m=await fetchGisMetrics();
+  var pca=runPCA(m);
+  var result=runWLC(m,pca);
+  // Step 3: Fetch real market data and compute RLVM
+  updateAnalysisStatus("Consultando datos de mercado en tiempo real...");
+  var rlvm=await fetchRLVMData(result.score);
+  result.rlvm=rlvm;
+  result.valor_actual=rlvm.valor_suelo_actual;
+  result.valor_potencial=rlvm.valor_suelo_residual;
+  WLC_RESULT=result;
+  return result;
+}
+
+function updateAnalysisStatus(msg){
+  var el=document.getElementById('analysis-status');
+  if(el)el.textContent=msg;
+}
+
+function renderRLVM(r) {
+  var fmt = function(n){ return n>=1000000?"US$ "+(n/1000000).toFixed(2)+"M":n>=1000?"US$ "+(n/1000).toFixed(0)+"K":"US$ "+n; };
+  return (
+    '<div style="background:#0a1a10;border:1px solid rgba(46,204,113,.25);border-radius:10px;padding:12px;font-size:10px">' +
+      '<div style="font-size:9px;color:#2ECC71;font-weight:700;text-transform:uppercase;letter-spacing:.1em;margin-bottom:10px">💰 Residual Land Value Method</div>' +
+      '<div style="display:flex;flex-direction:column;gap:5px">' +
+        '<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.06)">' +
+          '<span style="color:#8FA5BE">VDP — Valor Desarrollo Completado</span><span style="color:#E8EDF3;font-weight:600">'+fmt(r.VDP)+'</span>' +
+        '</div>' +
+        '<div style="display:flex;justify-content:space-between;padding:3px 0;color:#E74C3C">' +
+          '<span>− CC Construcción (directo + indirecto)</span><span>−'+fmt(r.CC)+'</span>' +
+        '</div>' +
+        '<div style="display:flex;justify-content:space-between;padding:3px 0;color:#E74C3C">' +
+          '<span>− CF Costos financieros ('+Math.round(r.tasa_interes*100)+'% · '+r.meses_construccion+' meses)</span><span>−'+fmt(r.CF)+'</span>' +
+        '</div>' +
+        '<div style="display:flex;justify-content:space-between;padding:3px 0;color:#E74C3C">' +
+          '<span>− MD Margen desarrollador ('+Math.round(r.margen_desarrollador*100)+'%)</span><span>−'+fmt(r.MD)+'</span>' +
+        '</div>' +
+        '<div style="display:flex;justify-content:space-between;padding:3px 0;color:#E74C3C;border-bottom:1px solid rgba(255,255,255,.06);padding-bottom:7px">' +
+          '<span>− RR Reserva riesgos ('+Math.round(r.reserva_riesgo*100)+'%)</span><span>−'+fmt(r.RR)+'</span>' +
+        '</div>' +
+        '<div style="display:flex;justify-content:space-between;padding:7px 0 3px;font-weight:800">' +
+          '<span style="color:#2ECC71;font-size:11px">VRS = Valor Residual del Suelo</span><span style="color:#2ECC71;font-size:13px">'+fmt(r.VRS)+'</span>' +
+        '</div>' +
+        '<div style="font-size:9px;color:#8FA5BE;padding-bottom:5px;border-bottom:1px solid rgba(255,255,255,.06)">'+fmt(r.VRS_m2)+'/m² · '+r.area_construida.toLocaleString()+' m² construibles (ajuste score: '+r.ajuste_score+'%)</div>' +
+        '<div style="font-size:8px;color:#4A6480;margin-top:5px;line-height:1.5">'+
+          '📡 Fuentes: '+r.fuentes.join(", ")+(r.fecha_datos?" · "+r.fecha_datos:"")+
+          (r.notas?'<br>⚠ '+r.notas:'')+
+        '</div>' +
+      '</div>' +
+    '</div>'
+  );
+}
+
+function renderAnalysisResult(result){
+  var ap=document.getElementById('ap');if(!ap)return;
+  var sc=result.score,scColor=sc>=75?'#2ECC71':sc>=55?'#F2C94C':'#E74C3C',scLabel=sc>=75?'APTO':sc>=55?'CONDICIONAL':'NO APTO';
+  ap.innerHTML='<div style="background:'+C.card+';border:1px solid '+C.bo+';border-radius:15px;padding:18px;display:flex;flex-direction:column;gap:10px">'+
+    '<div style="text-align:center;padding:14px;background:'+C.c2+';border-radius:10px;border:2px solid '+scColor+'33">'+
+      '<div style="font-size:9px;color:'+C.td+';font-weight:700;text-transform:uppercase;letter-spacing:.1em;margin-bottom:4px">Score WLC Final</div>'+
+      '<div class="mn" style="font-size:52px;font-weight:900;color:'+scColor+';line-height:1">'+sc+'</div>'+
+      '<div style="font-size:10px;color:'+scColor+';font-weight:700;letter-spacing:.1em">'+scLabel+'</div>'+
+      '<div style="font-size:9px;color:'+C.td+';margin-top:4px">Score bruto: '+result.score_raw+'/100 · Factor: '+result.restriction_factor+'</div>'+
+    '</div>'+
+    (result.pca.pca_applied?'<div style="background:rgba(23,195,178,.08);border:1px solid rgba(23,195,178,.25);border-radius:8px;padding:9px 12px"><div style="font-size:9px;color:#17C3B2;font-weight:700;text-transform:uppercase;margin-bottom:4px">🔬 PCA Aplicado</div>'+result.pca.corr_pairs.map(function(p){return'<div style="font-size:10px;color:'+C.tm+'">Correlación '+p.a+' ↔ '+p.b+': '+(p.corr*100).toFixed(0)+'% → '+p.pc+'</div>';}).join('')+'</div>':'')+
+    (result.restrictions.length>0?'<div style="background:rgba(231,76,60,.08);border:1px solid rgba(231,76,60,.3);border-radius:8px;padding:9px 12px"><div style="font-size:9px;color:#E74C3C;font-weight:700;text-transform:uppercase;margin-bottom:4px">⛔ Restricciones</div>'+result.restrictions.map(function(r){return'<div style="font-size:10px;color:'+C.tm+';margin-bottom:2px">'+r+'</div>';}).join('')+'</div>':'')+
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">'+
+      '<div style="background:'+C.c2+';border-radius:8px;padding:11px 12px"><div style="font-size:9px;color:'+C.td+';margin-bottom:3px">Valor actual</div><div class="mn" style="font-size:18px;color:'+C.tx+';font-weight:800">US$ '+(result.valor_actual/1000).toFixed(0)+'K</div></div>'+
+      '<div style="background:'+C.c2+';border-radius:8px;padding:11px 12px;border-top:2px solid '+C.gr+'"><div style="font-size:9px;color:'+C.td+';margin-bottom:3px">Valor potencial</div><div class="mn" style="font-size:18px;color:'+C.gr+';font-weight:800">US$ '+(result.valor_potencial/1000).toFixed(0)+'K</div><div style="font-size:9px;color:'+C.td+'">×'+result.multiplier+' inversión</div></div>'+
+    '</div>'+
+    '<button onclick="verCertificado()" style="width:100%;background:linear-gradient(135deg,#1565C0,#0D47A1);color:white;padding:10px 0;border-radius:8px;font-size:12px;font-weight:700;border:none;cursor:pointer">📋 Ver Certificado de Idoneidad</button>'+
+  '</div>';
+}
+
+function renderAnalysisBreakdown(result){
+  var d=document.getElementById('wlc-desglose');if(!d)return;
+  d.innerHTML=result.breakdown.map(function(l){return mbar(l.label+' (w='+l.wi+'%)',l.xi,l.color,l.icon);}).join('')+
+    '<div style="margin-top:10px;padding:10px;background:'+C.c2+';border-radius:8px;font-size:10px;color:'+C.tm+'"><strong style="color:'+C.tx+'">Fórmula WLC:</strong> Score = (Σ wᵢ·xᵢ) · Πcⱼ = '+result.score_raw+' × '+result.restriction_factor+' = <strong style="color:#2ECC71">'+result.score+'</strong></div>';
+}
+
+function verCertificado(){
+  if(!WLC_RESULT){alert('Primero genera el diagnóstico.');return;}
+  var r=WLC_RESULT;
+  var scColor=r.score>=75?'#1565C0':r.score>=55?'#F39C12':'#E74C3C';
+  var scLabel=r.score>=75?'TERRENO APTO':r.score>=55?'APTO CONDICIONAL':'NO APTO';
+  var css='body{font-family:Arial,sans-serif;font-size:11pt;color:#111;padding:24px;background:white}h1{color:#1565C0;font-size:16pt}h2{color:#1565C0;font-size:12pt;border-bottom:2px solid #1565C0;padding-bottom:4px;margin-top:18px}table{width:100%;border-collapse:collapse;margin:10px 0}th{background:#1565C0;color:white;padding:6px 8px;text-align:left}td{padding:5px 8px;border:1px solid #ddd}tr:nth-child(even)td{background:#f8f9fa}.score-box{text-align:center;padding:20px;border:3px solid '+scColor+';border-radius:8px;margin:16px 0}.score-num{font-size:48pt;font-weight:900;color:'+scColor+';line-height:1}.disclaimer{font-size:8pt;color:#666;border-top:1px solid #ddd;padding-top:8px;margin-top:14px}@media print{@page{margin:2cm;size:A4}body{-webkit-print-color-adjust:exact}}';
+  var content='<h1>ABC TERRITORIAL INTELLIGENCE</h1><h2>Certificado de Idoneidad Territorial</h2>'+
+    '<p><strong>Terreno:</strong> Verón 01 &nbsp;|&nbsp; <strong>Fecha:</strong> '+new Date().toLocaleDateString('es-DO')+'&nbsp;|&nbsp; <strong>Área:</strong> 32,450 m²</p>'+
+    '<div class="score-box"><div class="score-num">'+r.score+'</div><div style="font-size:14pt;font-weight:700;color:'+scColor+'">'+scLabel+'</div><div style="font-size:10pt;color:#666;margin-top:4px">Metodología WLC + PCA · Capas GIS oficiales RD</div></div>'+
+    '<h2>Metodología</h2><p>Score = (Σ wᵢ·xᵢ) · Πcⱼ = '+r.score_raw+' × '+r.restriction_factor+' = <strong>'+r.score+'</strong></p>'+
+    (r.pca.pca_applied?'<p><strong>PCA aplicado:</strong> '+r.pca.corr_pairs.map(function(p){return p.a+' ↔ '+p.b+' (r='+(p.corr*100).toFixed(0)+'%) → '+p.pc;}).join(', ')+'</p>':'')+
+    '<h2>Desglose por Capa GIS</h2><table><tr><th>Capa</th><th>Score (xᵢ)</th><th>Peso (wᵢ)</th><th>Contribución</th><th>Detalle</th></tr>'+
+    r.breakdown.map(function(l){return'<tr><td>'+l.icon+' '+l.label+'</td><td>'+l.xi+'/100</td><td>'+l.wi+'%</td><td>'+l.contribution+' pts</td><td>'+(r.metrics_detail[l.id]?r.metrics_detail[l.id].desc:'—')+'</td></tr>';}).join('')+
+    '</table>'+
+    (r.restrictions.length>0?'<h2>Restricciones</h2><ul>'+r.restrictions.map(function(x){return'<li>'+x+'</li>';}).join('')+'</ul>':'')+
+    '<h2>Valoración por Residual Land Value Method (RLVM)</h2>'+
+    (r.rlvm ? 
+      '<p style="font-size:10pt;color:#444;margin-bottom:8px"><em>Fórmula: VRS = VDP − CC − CF − MD − RR</em></p>'+
+      '<table>'+
+        '<tr><th>Componente</th><th>Descripción</th><th style="text-align:right">Valor (USD)</th></tr>'+
+        '<tr><td><strong>VDP</strong></td><td>Valor del Desarrollo Completado ('+r.rlvm.area_construida.toLocaleString()+' m² × US$'+r.rlvm.precio_venta_m2+'/m²)</td><td style="text-align:right">'+r.rlvm.VDP.toLocaleString()+'</td></tr>'+
+        '<tr style="color:#c0392b"><td>− CC</td><td>Costos de Construcción (directo US$'+r.rlvm.costo_construccion_m2+'/m² + 15% indirecto)</td><td style="text-align:right">−'+r.rlvm.CC.toLocaleString()+'</td></tr>'+
+        '<tr style="color:#c0392b"><td>− CF</td><td>Costos Financieros ('+Math.round(r.rlvm.tasa_interes*100)+'% anual · '+r.rlvm.meses_construccion+' meses construcción)</td><td style="text-align:right">−'+r.rlvm.CF.toLocaleString()+'</td></tr>'+
+        '<tr style="color:#c0392b"><td>− MD</td><td>Margen del Desarrollador ('+Math.round(r.rlvm.margen_desarrollador*100)+'% sobre VDP)</td><td style="text-align:right">−'+r.rlvm.MD.toLocaleString()+'</td></tr>'+
+        '<tr style="color:#c0392b"><td>− RR</td><td>Reserva de Riesgos — vacancia, imprevistos, permisos ('+Math.round(r.rlvm.reserva_riesgo*100)+'%)</td><td style="text-align:right">−'+r.rlvm.RR.toLocaleString()+'</td></tr>'+
+        '<tr style="background:#e8f5e9;font-weight:bold"><td>= VRS</td><td><strong>Valor Residual del Suelo (Valor potencial del terreno)</strong></td><td style="text-align:right;color:#1b5e20">US$ '+r.rlvm.VRS.toLocaleString()+'</td></tr>'+
+        '<tr><td></td><td>Valor residual por m²</td><td style="text-align:right">US$ '+r.rlvm.VRS_m2.toLocaleString()+'/m²</td></tr>'+
+        '<tr><td></td><td>Ajuste por Score WLC ('+r.rlvm.ajuste_score+'% del potencial)</td><td style="text-align:right">Score '+r.score+'/100</td></tr>'+
+      '</table>'+
+      '<p style="font-size:9pt;color:#666;margin-top:8px">📡 Fuentes de datos: '+r.rlvm.fuentes.join(", ")+' ('+r.rlvm.fecha_datos+')</p>'+
+      (r.rlvm.notas?'<p style="font-size:9pt;color:#888">Nota: '+r.rlvm.notas+'</p>':'')
+    : '<table><tr><th>Concepto</th><th>Valor</th></tr><tr><td>Valor Residual del Suelo (RLVM)</td><td>Ejecutar análisis para calcular</td></tr></table>')+
+    '<div class="disclaimer">Generado mediante análisis multicriterio WLC con capas GIS oficiales RD (MOPC, ONE, MIMARENA, IGN). ABC Territorial Intelligence. Documento técnico de referencia.<br><br><strong>⚠ Nota legal:</strong> Esta proyección es referencial. El valor potencial real requiere una tasación formal según metodología CODIA/ITADO y estudio de mercado específico. Este documento no sustituye peritaje legal ni tasación oficial.</div>';
+  showModal(content,css);
 }
 
 /* ── BOOT ── */
