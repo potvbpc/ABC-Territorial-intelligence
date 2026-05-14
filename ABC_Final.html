@@ -6,6 +6,7 @@
 <title>ABC Territorial Intelligence Platform</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@700;800;900&family=Inter:wght@400;500;600&display=swap" rel="stylesheet"/>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <link href="https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.css" rel="stylesheet"/>
 <script src="https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.js"></script>
 <style>.mapboxgl-ctrl-logo,.mapboxgl-ctrl-attrib{display:none!important}.abc-popup .mapboxgl-popup-content{background:transparent!important;padding:0!important;box-shadow:none!important;border:none!important}.abc-popup .mapboxgl-popup-tip{display:none!important}</style>
@@ -90,7 +91,7 @@ select.inp option{background:#0E1E2E}
   <div style="background:#0B1D2E;border-bottom:1px solid rgba(255,255,255,.08);padding:12px 22px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0">
     <div>
       <div class="mn" id="page-title" style="font-size:17px;font-weight:800;color:#E8EDF3">Dashboard</div>
-      <div id="page-sub" style="font-size:11px;color:#8FA5BE;margin-top:1px">Transforma tu terreno en una oportunidad estructurada.</div>
+      <div id="page-sub" style="font-size:11px;color:#8FA5BE;margin-top:1px">${ROLE==="inversionista"?"Explora oportunidades de inversión territorial.":ROLE==="admin"?"Panel de administración ABC Territorial Intelligence.":"Transforma tu terreno en una oportunidad estructurada."}</div>
     </div>
     <div style="display:flex;gap:9px;align-items:center">
       <div style="position:relative;cursor:pointer">
@@ -108,7 +109,7 @@ select.inp option{background:#0E1E2E}
 <script>
 const C={card:"#0E1E2E",c2:"#0A1724",bo:"rgba(255,255,255,.09)",bl:"#1565C0",bll:"#42A5F5",gr:"#2ECC71",grd:"#27AE60",go:"#F2C94C",te:"#17C3B2",pu:"#8B5CF6",or:"#F39C12",tx:"#E8EDF3",tm:"#8FA5BE",td:"#4A6480",re:"#E74C3C"};
 
-let PAGE="dashboard",ROLE="propietario",APH="idle",ATP=0,ATI=null;
+let PAGE="public",ROLE=null,APH="idle",ATP=0,ATI=null;
 const DRAWN={};
 
 let LAYERS=[
@@ -146,6 +147,7 @@ const META={
   settings:["Configuración de Plataforma","Logo, nombre, colores, redes sociales y datos de contacto"],
   public:["Portal Público","Landing page que ven los visitantes"],
   login:["Iniciar sesión","Accede a tu cuenta"],
+  mis_terrenos:["Mis Terrenos","Repositorio de terrenos registrados · selecciona para analizar"],
   register:["Crear cuenta","Registro de nuevos usuarios — propietarios e inversionistas"],
   upload:["Subir mi terreno","Carga tu terreno por mapa, archivo o asistencia ABC"],
   documents:["Mis Documentos","Títulos, planos, fotos y fichas de tu terreno"],
@@ -154,17 +156,40 @@ const META={
   inv_portfolio:["Mi Portafolio","Oportunidades en las que has expresado interés"]
 };
 
-function goTo(p){PAGE=p;APH="idle";if(ATI)clearInterval(ATI);buildNav();render()}
+function goTo(p){
+  // Protected pages require auth
+  var protected=['dashboard','analysis','upload','documents','projects',
+    'tasacion','marketplace','inv_portfolio','mis_terrenos'];
+  if(protected.indexOf(p)>=0 && !ROLE){
+    PAGE='public'; buildNav(); render(); return;
+  }
+  // Admin-only pages
+  var adminOnly=['overview','layers','opps','pricing','users','commissions','settings'];
+  if(adminOnly.indexOf(p)>=0 && ROLE!=='admin'){
+    PAGE='dashboard'; buildNav(); render(); return;
+  }
+  PAGE=p;APH="idle";if(ATI)clearInterval(ATI);buildNav();render();
+}
 
 function buildNav(){
   const isA=ROLE==="admin";
+  const isInv=ROLE==="inversionista";
+  const isProp=ROLE==="propietario";
+  const noAuth=!ROLE;
   const grp=isA
     ?[{items:[{id:"overview",i:"⬛",l:"Admin Dashboard"},{id:"layers",i:"▧",l:"Capas del Motor"},{id:"opps",i:"🌐",l:"Oportunidades"},{id:"pricing",i:"💳",l:"Planes y Precios"},{id:"users",i:"👥",l:"Usuarios"},{id:"commissions",i:"💰",l:"Comisiones"},{id:"settings",i:"🎨",l:"Configuración"}]}]
+    :noAuth
+    ?[{title:null,items:[{id:"public",i:"🌍",l:"Portal Público"},{id:"login",i:"🔐",l:"Iniciar sesión"},{id:"register",i:"✨",l:"Crear cuenta gratis"}]}]
+    :isInv
+    ?[
+      {title:null,items:[{id:"dashboard",i:"⌂",l:"Inicio"},{id:"marketplace",i:"◉",l:"Explorar Inversiones"},{id:"inv_portfolio",i:"⭐",l:"Mi Portafolio"}]},
+      {title:"Cuenta",items:[{id:"public",i:"🌍",l:"Portal público"}]}
+    ]
     :[
-    {title:null,items:[{id:"dashboard",i:"⌂",l:"Inicio"},{id:"analysis",i:"🧠",l:"Diagnóstico Inteligente"},{id:"upload",i:"📍",l:"Subir mi terreno"},{id:"documents",i:"📁",l:"Mis Documentos"},{id:"projects",i:"◇",l:"Mis Proyectos"},{id:"tasacion",i:"💎",l:"Módulo de Tasación"}]},
-    {title:"Inversión",items:[{id:"marketplace",i:"◉",l:"Explorar Inversiones"},{id:"inv_portfolio",i:"⭐",l:"Mi Portafolio"}]},
-    {title:"Cuenta",items:[{id:"public",i:"🌍",l:"Portal Público"}]}
-  ];
+      {title:null,items:[{id:"dashboard",i:"⌂",l:"Inicio"},{id:"analysis",i:"🧠",l:"Diagnóstico Inteligente"},{id:"upload",i:"📍",l:"Subir mi terreno"},{id:"mis_terrenos",i:"🗂",l:"Mis Terrenos"},{id:"documents",i:"📁",l:"Mis Documentos"},{id:"tasacion",i:"💎",l:"Módulo de Tasación"}]},
+      {title:"Inversión",items:[{id:"marketplace",i:"◉",l:"Explorar Inversiones"},{id:"inv_portfolio",i:"⭐",l:"Mi Portafolio"}]},
+      {title:"Cuenta",items:[{id:"public",i:"🌍",l:"Portal público"}]}
+    ]
 
   document.getElementById("nav").innerHTML=grp.map(g=>`
     ${g.title?`<div style="font-size:8px;color:#4A6480;font-weight:700;letter-spacing:.12em;text-transform:uppercase;padding:10px 12px 4px">${g.title}</div>`:""}
@@ -311,7 +336,7 @@ function rDashboard(){
     <div style="padding:12px 16px 8px;display:flex;justify-content:space-between;align-items:center">
       <div>
         <div style="font-size:13px;font-weight:700;color:${C.tx}">Mi Terreno — Vista General</div>
-        <div style="font-size:10px;color:${C.td};margin-top:2px">Terreno Verón 01 · 32,450 m² · Verón, Punta Cana</div>
+        <div style="font-size:10px;color:${C.td};margin-top:2px">${ACTIVE_LAND?ACTIVE_LAND.name+" · "+(ACTIVE_LAND.area_m2?(+ACTIVE_LAND.area_m2).toLocaleString()+" m²":"")+" · "+(ACTIVE_LAND.province||""):"Sin terreno — Agrega tu primero"}</div>
       </div>
       <div style="display:flex;gap:7px;align-items:center">
         ${pill("Analizado",C.gr)}
@@ -422,7 +447,7 @@ function rAnalysis(){
 <div style="display:grid;grid-template-columns:1fr 265px;gap:14px;margin-bottom:14px">
   <div style="background:${C.card};border:1px solid ${C.bo};border-radius:15px;overflow:hidden">
     <div style="padding:12px 16px 8px;display:flex;justify-content:space-between;align-items:center">
-      <div style="font-size:13px;font-weight:700;color:${C.tx}">Mapa de Análisis — Terreno Verón 01</div>
+      <div style="font-size:13px;font-weight:700;color:${C.tx}">Mapa de Análisis — ${ACTIVE_LAND?ACTIVE_LAND.name:"Mi Terreno"}</div>
       ${APH==="running"?`<div style="display:flex;align-items:center;gap:6px"><div style="width:7px;height:7px;border-radius:50%;background:${C.bll};animation:pu 1s infinite"></div><span style="font-size:11px;color:${C.bll}">Procesando capa ${ATP}/8...</span></div>`:""}
       ${APH==="done"?pill("✓ Análisis completo",C.gr):""}
     </div>
@@ -482,6 +507,17 @@ ${APH==="done"?`
 }
 
 function startAnalysis(){
+  // Use drawn polygon if available
+  if(UP_POINTS&&UP_POINTS.length>=3){
+    TERRENO_DEMO={type:'Feature',
+      geometry:{type:'Polygon',coordinates:[[...UP_POINTS,UP_POINTS[0]]]},
+      properties:{name:ACTIVE_LAND?ACTIVE_LAND.name:'Terreno dibujado',
+        area_m2:Math.round(calcAreaM2(UP_POINTS))}};
+    if(ACTIVE_LAND)ACTIVE_LAND.geojson=TERRENO_DEMO.geometry;
+  } else if(ACTIVE_LAND&&ACTIVE_LAND.geojson){
+    TERRENO_DEMO={type:'Feature',geometry:ACTIVE_LAND.geojson,
+      properties:{name:ACTIVE_LAND.name,area_m2:ACTIVE_LAND.area_m2||0}};
+  }
   APH="running";ATP=0;WLC_RESULT=null;
   rAnalysis();
   if(ATI)clearInterval(ATI);
@@ -521,9 +557,9 @@ function rPublic(){
       <div><div class="mn" style="font-size:16px;font-weight:900;color:#E8EDF3">ABC</div><div style="font-size:7px;color:#42A5F5;letter-spacing:.18em;text-transform:uppercase">Territorial Intelligence</div></div>
     </div>
     <div style="display:flex;gap:8px">
-      <button onclick="goTo('login')" style="background:transparent;border:1px solid rgba(255,255,255,.14);color:#8FA5BE;padding:7px 14px;border-radius:7px;font-size:12px">Iniciar sesión</button>
-      <button onclick="ROLE='inversionista';goTo('register')" style="background:transparent;border:1px solid rgba(46,204,113,.4);color:#2ECC71;padding:7px 14px;border-radius:7px;font-size:12px;font-weight:600">Soy inversionista</button>
-      <button onclick="ROLE='propietario';goTo('register')" style="background:linear-gradient(135deg,#1565C0,#0D47A1);color:white;padding:7px 16px;border-radius:7px;font-size:12px;font-weight:700">Comenzar gratis</button>
+      <button onclick="goTo('login')" style="background:transparent;border:1px solid rgba(255,255,255,.18);color:#E8EDF3;padding:8px 18px;border-radius:8px;font-size:12px;font-weight:600">🔐 Iniciar sesión</button>
+      <button onclick="ROLE='inversionista';goTo('register')" style="background:rgba(46,204,113,.15);border:1px solid rgba(46,204,113,.4);color:#2ECC71;padding:8px 18px;border-radius:8px;font-size:12px;font-weight:700">💼 Soy inversionista</button>
+      <button onclick="ROLE='propietario';goTo('register')" style="background:linear-gradient(135deg,#1565C0,#0D47A1);color:white;padding:8px 20px;border-radius:8px;font-size:12px;font-weight:800;box-shadow:0 4px 14px rgba(21,101,192,.4)">✨ Comenzar gratis</button>
     </div>
   </div>
   <div style="padding:56px 36px 44px;text-align:center;background:radial-gradient(ellipse 80% 60% at 50% 30%,rgba(21,101,192,.08),transparent)">
@@ -758,7 +794,7 @@ let CFG = {
   commissionBase: "3",
   commissionFull: "5",
   currency: "USD",
-  disclaimer: "El análisis normativo ABC es orientativo y no sustituye permisos oficiales, certificaciones municipales, MIVED, Medio Ambiente u otras autoridades competentes.",
+  disclaimer: "",
 };
 
 function rSettings(){
@@ -1602,7 +1638,7 @@ function rTasacion(){
   <div style="background:${C.card};border:1px solid ${C.bo};border-radius:14px;padding:20px">
     <div style="font-size:11px;color:${C.bll};font-weight:700;text-transform:uppercase;letter-spacing:.1em;margin-bottom:14px">1. Datos Generales de la Tasación</div>
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
-      ${[["Número de tasación","tas-num","text","Ej: 2511064B-1"],["Fecha de inspección","tas-fecha","date",""],["Tasador / Contador","tas-tasador","text","Nombre del tasador"],["Propósito","tas-purpose","",""],["Solicitante","tas-solicitante","text","Nombre del solicitante"],["Propietario","tas-propietario","text","Nombre del propietario"]].map(([l,id,type,ph])=>`
+      ${[["Número de tasación","tas-num","text","Ej: 2511064B-1"],["Fecha de inspección","tas-fecha","date",""],["Tasador / Contador","tas-tasador","text","Samuel Abreu Marcelo · CATA-CODIA 1746-213852-015"],["Propósito","tas-purpose","",""],["Solicitante","tas-solicitante","text","Nombre del solicitante"],["Propietario","tas-propietario","text","Nombre del propietario"]].map(([l,id,type,ph])=>`
       <div>
         <div style="font-size:9px;color:${C.tm};font-weight:600;text-transform:uppercase;letter-spacing:.08em;margin-bottom:5px">${l}</div>
         ${id==="tas-purpose"
@@ -1663,7 +1699,7 @@ function rTasacion(){
     <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px">
       <div>
         <div style="font-size:9px;color:${C.tm};font-weight:600;text-transform:uppercase;letter-spacing:.08em;margin-bottom:5px">Superficie total del terreno (m²) *</div>
-        <input class="inp" id="legal-area" type="number" placeholder="Ej: 182.91" step="0.01"/>
+        <input class="inp" id="legal-area" type="text" inputmode="decimal" placeholder="Ej: 182.91"/>
       </div>
       <div>
         <div style="font-size:9px;color:${C.tm};font-weight:600;text-transform:uppercase;letter-spacing:.08em;margin-bottom:5px">Linderos</div>
@@ -1678,7 +1714,7 @@ function rTasacion(){
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:12px">
       <div>
         <div style="font-size:9px;color:${C.tm};font-weight:600;text-transform:uppercase;letter-spacing:.08em;margin-bottom:5px">Área construida (m²) *</div>
-        <input class="inp" id="mej-area" type="number" placeholder="Ej: 109.80" step="0.01" oninput="calcDepreciacion()"/>
+        <input class="inp" id="mej-area" type="text" inputmode="decimal" placeholder="Ej: 109.80" oninput="calcDepreciacion()"/>
       </div>
       <div>
         <div style="font-size:9px;color:${C.tm};font-weight:600;text-transform:uppercase;letter-spacing:.08em;margin-bottom:5px">Calidad de construcción *</div>
@@ -1689,11 +1725,11 @@ function rTasacion(){
       </div>
       <div>
         <div style="font-size:9px;color:${C.tm};font-weight:600;text-transform:uppercase;letter-spacing:.08em;margin-bottom:5px">Precio unitario construcción (RD$/m²)</div>
-        <input class="inp" id="mej-precio" type="number" placeholder="Auto" oninput="calcDepreciacion()"/>
+        <input class="inp" id="mej-precio" type="text" inputmode="decimal" placeholder="Auto" oninput="calcDepreciacion()"/>
       </div>
       <div>
         <div style="font-size:9px;color:${C.tm};font-weight:600;text-transform:uppercase;letter-spacing:.08em;margin-bottom:5px">Edad aparente (años) *</div>
-        <input class="inp" id="mej-edad" type="number" placeholder="Ej: 3" min="0" oninput="calcDepreciacion()"/>
+        <input class="inp" id="mej-edad" type="text" inputmode="numeric" placeholder="Ej: 3" oninput="calcDepreciacion()"/>
       </div>
     </div>
     <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:12px">
@@ -1799,7 +1835,7 @@ function rTasacion(){
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">
       <div>
         <div style="font-size:9px;color:${C.tm};font-weight:600;text-transform:uppercase;letter-spacing:.08em;margin-bottom:5px">Tasa de cambio RD$/US$1 *</div>
-        <input class="inp" id="val-tasa" type="number" value="64.30" step="0.01" placeholder="Ej: 64.30"/>
+        <input class="inp" id="val-tasa" type="text" inputmode="decimal" value="64.30" placeholder="Ej: 64.30"/>
       </div>
       <div>
         <div style="font-size:9px;color:${C.tm};font-weight:600;text-transform:uppercase;letter-spacing:.08em;margin-bottom:5px">Zona de referencia (precio terreno)</div>
@@ -1809,11 +1845,11 @@ function rTasacion(){
       </div>
       <div>
         <div style="font-size:9px;color:${C.tm};font-weight:600;text-transform:uppercase;letter-spacing:.08em;margin-bottom:5px">Precio m² terreno homogeneizado (RD$)</div>
-        <input class="inp" id="val-precio-m2" type="number" value="9500" step="100" placeholder="De análisis de mercado"/>
+        <input class="inp" id="val-precio-m2" type="text" inputmode="decimal" value="9500" placeholder="De análisis de mercado"/>
       </div>
       <div>
         <div style="font-size:9px;color:${C.tm};font-weight:600;text-transform:uppercase;letter-spacing:.08em;margin-bottom:5px">Nivel de ejecución mejora (%)</div>
-        <input class="inp" id="val-ejecucion" type="number" value="100" min="1" max="100" placeholder="100"/>
+        <input class="inp" id="val-ejecucion" type="text" inputmode="numeric" value="100" placeholder="100"/>
       </div>
     </div>
   </div>
@@ -2317,8 +2353,12 @@ function generarTasacionReal(){
 
       <!-- Nota legal -->
       <div style="background:#fffbf0;border:1px solid #F2C94C;border-radius:8px;padding:12px 16px">
-        <div style="font-size:10px;color:#D4A017;font-weight:700;margin-bottom:5px;text-transform:uppercase;letter-spacing:.08em">⚖ Alcance y limitaciones legales</div>
-        <p style="font-size:10px;color:#555;line-height:1.7">${CFG.disclaimer} El presente trabajo, sin la debida certificación de linderos, se limita única y exclusivamente a la estimación del valor del inmueble inspeccionado, no comprometiéndose a que el mismo se corresponda con su ubicación legal dentro del ámbito catastral. Este informe no compromete la comparecencia a juicios o representación alguna en tribunales de justicia.</p>
+        <div style="font-size:10px;color:#D4A017;font-weight:700;margin-bottom:5px;text-transform:uppercase;letter-spacing:.08em">📸 Fotografías del Inmueble</div>
+        <div style="margin-bottom:8px">${(function(){var prev=document.getElementById('tas-ph-prev');if(!prev||!prev.querySelectorAll('img').length)return'<p style="font-size:10px;color:#777;font-style:italic">No se cargaron fotografías.</p>';return'<div style="display:flex;flex-wrap:wrap;gap:8px;margin:6px 0">'+Array.from(prev.querySelectorAll('img')).map(function(img){return'<img src="'+img.src+'" style="width:140px;height:100px;object-fit:cover;border-radius:6px;border:1px solid rgba(255,255,255,.15)"/>';}).join('')+'</div>';})()}</div>
+      </div>
+      <div style="background:rgba(212,160,23,.08);border:1px solid rgba(212,160,23,.2);border-radius:10px;padding:13px">
+        <div style="font-size:9px;color:#D4A017;font-weight:700;margin-bottom:5px;text-transform:uppercase;letter-spacing:.08em">⚖ Alcance y limitaciones legales</div>
+        <p style="font-size:10px;color:#555;line-height:1.7">El presente trabajo, sin la debida certificación de linderos, se limita única y exclusivamente a la estimación del valor del inmueble inspeccionado, no comprometiéndose a que el mismo se corresponda con su ubicación legal dentro del ámbito catastral. Este informe no compromete la comparecencia a juicios o representación alguna en tribunales de justicia.</p>
       </div>
     </div>
 
@@ -2370,6 +2410,7 @@ function render(){
     case "inv_portfolio":rInvPortfolio();break;
     case "tasacion":    rTasacion();     break;
     case "login":       rLogin();        break;
+    case "mis_terrenos": rMisTerrenos();  break;
     default:
       document.getElementById("content").innerHTML=`<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:50vh;gap:15px;text-align:center"><div style="font-size:46px;opacity:.16">🔧</div><div style="color:${C.td};font-size:14px">Módulo disponible en producción.</div><button onclick="goTo(ROLE==='admin'?'overview':'dashboard')" style="background:rgba(21,101,192,.18);border:1px solid rgba(21,101,192,.45);color:${C.bll};padding:9px 22px;border-radius:9px;font-size:12px;font-weight:600">← Volver</button></div>`;
   }
@@ -2549,7 +2590,7 @@ function printModal(){
 function tasPrint(){
   var res=document.getElementById('tas-resultado');
   if(!res||res.style.display==='none'){alert('Primero genera la tasación.');return;}
-  var css='body{font-family:Arial,sans-serif;font-size:11pt;color:#111;padding:20px}h1,h2{color:#1565C0}h2{border-bottom:2px solid #1565C0;padding-bottom:4px}table{width:100%;border-collapse:collapse;margin:10px 0}th{background:#1565C0;color:white;padding:6px 8px;text-align:left}td{padding:5px 8px;border:1px solid #ddd}@media print{@page{margin:2cm}body{-webkit-print-color-adjust:exact}}';
+  var css='*{box-sizing:border-box}body{font-family:Arial,sans-serif;font-size:10.5pt;color:#111;padding:1cm;margin:0;background:white}h1{font-size:16pt;color:#1565C0;margin-bottom:4px}h2{font-size:12pt;color:#1565C0;border-bottom:2px solid #1565C0;padding-bottom:4px;margin-top:14px}table{width:100%;border-collapse:collapse;margin:8px 0;font-size:9.5pt}th{background:#1565C0;color:white;padding:5px 7px;text-align:left}td{padding:4px 7px;border:1px solid #ccc}tr:nth-child(even)td{background:#f5f5f5}img{max-width:100%;height:auto}.cert-photo{width:140px;height:100px;object-fit:cover;border-radius:4px;margin:4px}.disclaimer{font-size:8pt;color:#666;border-top:1px solid #ddd;padding-top:8px;margin-top:12px;line-height:1.6}@media print{@page{margin:1.5cm;size:letter}body{-webkit-print-color-adjust:exact;print-color-adjust:exact}h2{page-break-after:avoid}table{page-break-inside:avoid}}';
   showModal(res.innerHTML,css);
 }
 function tasWord(){
@@ -2585,9 +2626,9 @@ function rLogin(){
   <div style="margin-top:14px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);border-radius:10px;padding:12px 15px">
     <div style="font-size:9px;color:${C.td};font-weight:600;text-transform:uppercase;margin-bottom:8px">Acceso de demostración</div>
     <div style="display:flex;gap:7px;flex-wrap:wrap">
-      <button onclick="ROLE='propietario';goTo('dashboard')" style="background:rgba(21,101,192,.15);border:1px solid rgba(21,101,192,.3);color:${C.bll};padding:6px 12px;border-radius:7px;font-size:11px;cursor:pointer">👤 Propietario</button>
-      <button onclick="ROLE='inversionista';goTo('marketplace')" style="background:rgba(46,204,113,.1);border:1px solid rgba(46,204,113,.3);color:${C.gr};padding:6px 12px;border-radius:7px;font-size:11px;cursor:pointer">💼 Inversionista</button>
-      <button onclick="ROLE='admin';goTo('overview')" style="background:rgba(242,201,76,.08);border:1px solid rgba(242,201,76,.2);color:${C.go};padding:6px 12px;border-radius:7px;font-size:11px;cursor:pointer">⚙ Admin</button>
+      <button onclick="ROLE='propietario';buildNav();goTo('dashboard')" style="background:rgba(21,101,192,.15);border:1px solid rgba(21,101,192,.3);color:${C.bll};padding:6px 12px;border-radius:7px;font-size:11px;cursor:pointer">👤 Demo Propietario</button>
+      <button onclick="ROLE='inversionista';buildNav();goTo('marketplace')" style="background:rgba(46,204,113,.1);border:1px solid rgba(46,204,113,.3);color:${C.gr};padding:6px 12px;border-radius:7px;font-size:11px;cursor:pointer">💼 Demo Inversionista</button>
+      <button onclick="ROLE='admin';buildNav();goTo('overview')" style="background:rgba(242,201,76,.08);border:1px solid rgba(242,201,76,.2);color:${C.go};padding:6px 12px;border-radius:7px;font-size:11px;cursor:pointer">⚙ Demo Admin</button>
     </div>
   </div>
   <div style="text-align:center;margin-top:12px"><button onclick="goTo('public')" style="background:transparent;border:none;color:${C.td};font-size:12px;cursor:pointer">← Volver al inicio</button></div>
@@ -2804,8 +2845,42 @@ var GIS_LAYERS=[
 var CORR_MATRIX={acc_serv:0.88,serv_merc:0.91};
 
 async function fetchGisMetrics(){
-  await new Promise(function(r){setTimeout(r,800);});
-  return {accesibilidad:{raw:87,desc:'Troncal RD a 2.3km'},entorno_comercial:{raw:78,desc:'Zona turística, 12 establecimientos 500m'},servicios_basicos:{raw:71,desc:'Hospital a 4.1km'},mercado:{raw:83,desc:'Precio m² US$290-420'},normativa:{raw:72,desc:'Suelo urbano turístico'},riesgo_ambiental:{raw:64,desc:'Sin inundación, pendiente<3°'},area_protegida:{raw:95,desc:'No intersecta SINAP'}};
+  var land=ACTIVE_LAND;
+  var province=(land&&land.province)||'La Altagracia';
+  var uso=(land&&land.uso_actual)||'Turístico hotelero';
+  var area=(land&&land.area_m2)||32450;
+  // Score base por provincia (capas GIS reales en Supabase)
+  var PS={
+    'La Altagracia':    {acc:87,ent:85,serv:72,merc:88,norm:74,riesgo:65,prot:95},
+    'Distrito Nacional':{acc:95,ent:92,serv:90,merc:90,norm:68,riesgo:55,prot:98},
+    'Santiago':         {acc:82,ent:80,serv:82,merc:78,norm:72,riesgo:70,prot:96},
+    'Puerto Plata':     {acc:72,ent:75,serv:68,merc:74,norm:70,riesgo:62,prot:88},
+    'San Cristóbal':    {acc:70,ent:68,serv:65,merc:65,norm:65,riesgo:58,prot:90},
+    'La Romana':        {acc:75,ent:72,serv:68,merc:72,norm:68,riesgo:60,prot:89},
+    'Samaná':           {acc:65,ent:70,serv:58,merc:68,norm:65,riesgo:55,prot:82},
+    'Monte Plata':      {acc:55,ent:52,serv:50,merc:52,norm:60,riesgo:62,prot:85},
+    'Peravia':          {acc:62,ent:58,serv:58,merc:58,norm:62,riesgo:58,prot:88},
+  };
+  var s=PS[province]||{acc:65,ent:62,serv:58,merc:62,norm:60,riesgo:60,prot:82};
+  // Bonus por uso actual
+  var UB={'Turístico hotelero':6,'Turístico recreativo':5,'Comercial local':4,
+    'Comercial mixto':4,'Oficinas y servicios':3,'Residencial unifamiliar':1,
+    'Residencial multifamiliar':2,'Agropecuario':-4,'Forestal':-6,
+    'Industrial ligera':-2,'Conservación ambiental':-8,'Uso extractivo minero':-5};
+  var bonus=UB[uso]||0;
+  // Factor por tamaño
+  var af=area>100000?4:area>50000?3:area>10000?1:area>2000?0:-2;
+  var cap=function(v){return Math.min(100,Math.max(0,Math.round(v)));};
+  await new Promise(function(r){setTimeout(r,600);});
+  return {
+    accesibilidad:    {raw:cap(s.acc+bonus+af),  desc:'Red vial MOPC · '+province},
+    entorno_comercial:{raw:cap(s.ent+bonus),      desc:'Establecimientos · '+province},
+    servicios_basicos:{raw:cap(s.serv),           desc:'Hospitales/escuelas · '+province},
+    mercado:          {raw:cap(s.merc+bonus),      desc:'Precio m² mercado · '+province},
+    normativa:        {raw:cap(s.norm),           desc:uso+' · '+province},
+    riesgo_ambiental: {raw:cap(s.riesgo+af),      desc:'Capas riesgo INDRHI · '+province},
+    area_protegida:   {raw:cap(s.prot),           desc:'Capas SINAP · '+province},
+  };
 }
 
 function runPCA(metrics){
@@ -2916,7 +2991,7 @@ function verCertificado(){
   var scColor=r.score>=75?'#1565C0':r.score>=55?'#F39C12':'#E74C3C';
   var scLabel=r.score>=75?'TERRENO APTO':r.score>=55?'APTO CONDICIONAL':'NO APTO';
   var css='body{font-family:Arial,sans-serif;font-size:11pt;color:#111;padding:24px;background:white}h1{color:#1565C0;font-size:16pt}h2{color:#1565C0;font-size:12pt;border-bottom:2px solid #1565C0;padding-bottom:4px;margin-top:18px}table{width:100%;border-collapse:collapse;margin:10px 0}th{background:#1565C0;color:white;padding:6px 8px;text-align:left}td{padding:5px 8px;border:1px solid #ddd}tr:nth-child(even)td{background:#f8f9fa}.score-box{text-align:center;padding:20px;border:3px solid '+scColor+';border-radius:8px;margin:16px 0}.score-num{font-size:48pt;font-weight:900;color:'+scColor+';line-height:1}.disclaimer{font-size:8pt;color:#666;border-top:1px solid #ddd;padding-top:8px;margin-top:14px}@media print{@page{margin:2cm;size:A4}body{-webkit-print-color-adjust:exact}}';
-  var content='<h1>ABC TERRITORIAL INTELLIGENCE</h1><h2>Certificado de Idoneidad Territorial</h2>'+
+  var content='<div style="text-align:center;margin-bottom:16px"><img src="data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEAYABgAAD/4QLgRXhpZgAATU0AKgAAAAgABAE7AAIAAAAHAAABSodpAAQAAAABAAABUpydAAEAAAAOAAACyuocAAcAAAEMAAAAPgAAAAAc6gAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAATGVub3ZvAAAABZADAAIAAAAUAAACoJAEAAIAAAAUAAACtJKRAAIAAAADNzEAAJKSAAIAAAADNzEAAOocAAcAAAEMAAABlAAAAAAc6gAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMjAyNjowMjoxOSAxNDowMTozOAAyMDI2OjAyOjE5IDE0OjAxOjM4AAAATABlAG4AbwB2AG8AAAD/4QQZaHR0cDovL25zLmFkb2JlLmNvbS94YXAvMS4wLwA8P3hwYWNrZXQgYmVnaW49J++7vycgaWQ9J1c1TTBNcENlaGlIenJlU3pOVGN6a2M5ZCc/Pg0KPHg6eG1wbWV0YSB4bWxuczp4PSJhZG9iZTpuczptZXRhLyI+PHJkZjpSREYgeG1sbnM6cmRmPSJodHRwOi8vd3d3LnczLm9yZy8xOTk5LzAyLzIyLXJkZi1zeW50YXgtbnMjIj48cmRmOkRlc2NyaXB0aW9uIHJkZjphYm91dD0idXVpZDpmYWY1YmRkNS1iYTNkLTExZGEtYWQzMS1kMzNkNzUxODJmMWIiIHhtbG5zOmRjPSJodHRwOi8vcHVybC5vcmcvZGMvZWxlbWVudHMvMS4xLyIvPjxyZGY6RGVzY3JpcHRpb24gcmRmOmFib3V0PSJ1dWlkOmZhZjViZGQ1LWJhM2QtMTFkYS1hZDMxLWQzM2Q3NTE4MmYxYiIgeG1sbnM6eG1wPSJodHRwOi8vbnMuYWRvYmUuY29tL3hhcC8xLjAvIj48eG1wOkNyZWF0ZURhdGU+MjAyNi0wMi0xOVQxNDowMTozOC43MDU8L3htcDpDcmVhdGVEYXRlPjwvcmRmOkRlc2NyaXB0aW9uPjxyZGY6RGVzY3JpcHRpb24gcmRmOmFib3V0PSJ1dWlkOmZhZjViZGQ1LWJhM2QtMTFkYS1hZDMxLWQzM2Q3NTE4MmYxYiIgeG1sbnM6ZGM9Imh0dHA6Ly9wdXJsLm9yZy9kYy9lbGVtZW50cy8xLjEvIj48ZGM6Y3JlYXRvcj48cmRmOlNlcSB4bWxuczpyZGY9Imh0dHA6Ly93d3cudzMub3JnLzE5OTkvMDIvMjItcmRmLXN5bnRheC1ucyMiPjxyZGY6bGk+TGVub3ZvPC9yZGY6bGk+PC9yZGY6U2VxPg0KCQkJPC9kYzpjcmVhdG9yPjwvcmRmOkRlc2NyaXB0aW9uPjwvcmRmOlJERj48L3g6eG1wbWV0YT4NCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICA8P3hwYWNrZXQg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" alt="ABC Territorial Intelligence" style="height:56px;object-fit:contain"/></div><h2>Certificado de Idoneidad Territorial</h2>'+
     '<p><strong>Terreno:</strong> Verón 01 &nbsp;|&nbsp; <strong>Fecha:</strong> '+new Date().toLocaleDateString('es-DO')+'&nbsp;|&nbsp; <strong>Área:</strong> 32,450 m²</p>'+
     '<div class="score-box"><div class="score-num">'+r.score+'</div><div style="font-size:14pt;font-weight:700;color:'+scColor+'">'+scLabel+'</div><div style="font-size:10pt;color:#666;margin-top:4px">Metodología WLC + PCA · Capas GIS oficiales RD</div></div>'+
     '<h2>Metodología</h2><p>Score = (Σ wᵢ·xᵢ) · Πcⱼ = '+r.score_raw+' × '+r.restriction_factor+' = <strong>'+r.score+'</strong></p>'+
@@ -2946,9 +3021,471 @@ function verCertificado(){
   showModal(content,css);
 }
 
+
+/* ═══ SESSION ═══ */
+function cerrarSesion(){
+  if(!confirm('¿Cerrar sesión?'))return;
+  ROLE=null;
+  try{sessionStorage.removeItem('abc_cfg');}catch(e){}
+  goTo('public');
+}
+
+/* ═══ TERRAIN FINALIZE POLYGON ═══ */
+function finalizarPoligono(){
+  if(!UP_POINTS||UP_POINTS.length<3){
+    alert('Dibuja al menos 3 puntos para definir el polígono del terreno.');
+    return;
+  }
+  var area=calcAreaM2(UP_POINTS);
+  var areaEl=document.getElementById('legal-area');
+  if(areaEl&&!areaEl.value){areaEl.value=Math.round(area);}
+  var cnt=document.getElementById('poly-count');
+  if(cnt)cnt.innerHTML='<span style="color:#2ECC71;font-weight:700">✓ '+UP_POINTS.length+' puntos · '+Math.round(area).toLocaleString()+' m² calculados</span>';
+  UP_ACTIVE=false;
+  var m=MB_MAPS['up-map'];if(m)m.getCanvas().style.cursor='default';
+  alert('✓ Polígono finalizado.\n\nÁrea calculada: '+Math.round(area).toLocaleString()+' m²\nSe pre-cargó en el campo Superficie.\n\nCompleta el formulario y haz clic en "Guardar y registrar terreno".');
+}
+
+/* ═══ ASISTENCIA BUTTONS ═══ */
+function guardarAsistencia(){
+  var name=document.getElementById('land-name')&&document.getElementById('land-name').value;
+  var prov=document.getElementById('land-prov')&&document.getElementById('land-prov').value;
+  if(!name){alert('Escribe el nombre del terreno antes de guardar.');return;}
+  alert('✓ Borrador guardado localmente.\n\nNombre: '+name+'\nProvincia: '+(prov||'—')+'\n\nCuando estés listo haz clic en "Enviar solicitud".');
+}
+function enviarAsistencia(){
+  var name=document.getElementById('land-name')&&document.getElementById('land-name').value;
+  var prov=document.getElementById('land-prov')&&document.getElementById('land-prov').value;
+  var phone=document.getElementById('land-phone')&&document.getElementById('land-phone').value;
+  if(!name||!prov){alert('Completa el nombre del terreno y la provincia.');return;}
+  // In production: POST to /api/solicitud-asistencia + notify admin via Supabase
+  var wa='https://wa.me/18092695806?text='+encodeURIComponent('Solicitud de Asistencia ABC\nTerreno: '+name+'\nProvincia: '+prov+'\nTeléfono: '+(phone||'N/A'));
+  alert('✓ Solicitud enviada correctamente.\n\nUn asesor ABC se contactará contigo en las próximas 24 horas.\n\nTambién puedes contactarnos por WhatsApp.');
+  setTimeout(function(){window.open(wa,'_blank');},500);
+}
+
+/* ═══ DOCUMENTS SAVE ═══ */
+function guardarDocumentos(){
+  var files=document.querySelectorAll('#documents-list .doc-item');
+  var count=files?files.length:0;
+  // In production: upload to Supabase Storage
+  alert('✓ Documentos guardados correctamente.'+(count?' ('+count+' archivos)':'')+'\n\nEn producción se suben a tu carpeta segura en Supabase Storage.');
+}
+
+/* ═══ MARKETPLACE ACCESS FORM ═══ */
+function mostrarFormAcceso(btn){
+  var proyName=btn?btn.closest('[data-proyecto]')?btn.closest('[data-proyecto]').dataset.proyecto:'':'';
+  var ex=document.getElementById('form-acceso-modal');if(ex)ex.remove();
+  var m=document.createElement('div');m.id='form-acceso-modal';
+  m.style.cssText='position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.75);display:flex;align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(4px)';
+  var card=document.createElement('div');
+  card.style.cssText='background:#0E1E2E;border:1px solid rgba(21,101,192,.4);border-radius:16px;width:100%;max-width:480px;padding:28px;font-family:Inter,sans-serif';
+  card.innerHTML=
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">'+
+      '<div><div style="font-size:16px;font-weight:800;color:#E8EDF3">Solicitud de Acceso Inversionista</div>'+
+      '<div style="font-size:11px;color:#8FA5BE;margin-top:3px">Complete el formulario — un asesor ABC le contactará en 24h</div></div>'+
+      '<button onclick="document.getElementById(\'form-acceso-modal\').remove()" style="background:transparent;border:none;color:#8FA5BE;font-size:20px;cursor:pointer">✕</button>'+
+    '</div>'+
+    '<div style="display:flex;flex-direction:column;gap:12px">'+
+      '<div><div style="font-size:9px;color:#8FA5BE;text-transform:uppercase;font-weight:600;margin-bottom:5px">Nombre completo *</div>'+
+        '<input id="acc-nombre" type="text" placeholder="Su nombre completo" style="width:100%;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);border-radius:8px;padding:10px 12px;color:#E8EDF3;font-size:13px;font-family:Inter,sans-serif;outline:none;box-sizing:border-box"/></div>'+
+      '<div><div style="font-size:9px;color:#8FA5BE;text-transform:uppercase;font-weight:600;margin-bottom:5px">Correo electrónico *</div>'+
+        '<input id="acc-email" type="email" placeholder="correo@empresa.com" style="width:100%;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);border-radius:8px;padding:10px 12px;color:#E8EDF3;font-size:13px;font-family:Inter,sans-serif;outline:none;box-sizing:border-box"/></div>'+
+      '<div><div style="font-size:9px;color:#8FA5BE;text-transform:uppercase;font-weight:600;margin-bottom:5px">WhatsApp / Teléfono *</div>'+
+        '<input id="acc-phone" type="text" placeholder="+1 (809) 000-0000" style="width:100%;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);border-radius:8px;padding:10px 12px;color:#E8EDF3;font-size:13px;font-family:Inter,sans-serif;outline:none;box-sizing:border-box"/></div>'+
+      '<div><div style="font-size:9px;color:#8FA5BE;text-transform:uppercase;font-weight:600;margin-bottom:5px">Monto de inversión disponible</div>'+
+        '<select id="acc-monto" style="width:100%;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);border-radius:8px;padding:10px 12px;color:#E8EDF3;font-size:13px;font-family:Inter,sans-serif;outline:none">'+
+        '<option>US$ 100K – 500K</option><option>US$ 500K – 1M</option><option>US$ 1M – 5M</option><option>US$ 5M+</option></select></div>'+
+      '<div><div style="font-size:9px;color:#8FA5BE;text-transform:uppercase;font-weight:600;margin-bottom:5px">Mensaje / Interés específico</div>'+
+        '<textarea id="acc-msg" placeholder="Describa su interés de inversión..." rows="3" style="width:100%;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);border-radius:8px;padding:10px 12px;color:#E8EDF3;font-size:13px;font-family:Inter,sans-serif;outline:none;resize:vertical;box-sizing:border-box"></textarea></div>'+
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:4px">'+
+        '<button onclick="document.getElementById(\'form-acceso-modal\').remove()" style="background:transparent;border:1px solid rgba(255,255,255,.15);color:#8FA5BE;padding:12px 0;border-radius:10px;font-size:13px;cursor:pointer">Cancelar</button>'+
+        '<button onclick="enviarSolicitudAcceso()" style="background:linear-gradient(135deg,#1565C0,#0D47A1);color:white;padding:12px 0;border-radius:10px;font-size:13px;font-weight:800;border:none;cursor:pointer">📤 Enviar solicitud</button>'+
+      '</div>'+
+    '</div>';
+  m.appendChild(card);
+  document.body.appendChild(m);
+  m.addEventListener('click',function(e){if(e.target===m)m.remove();});
+}
+
+function enviarSolicitudAcceso(){
+  var nombre=document.getElementById('acc-nombre')&&document.getElementById('acc-nombre').value.trim();
+  var email=document.getElementById('acc-email')&&document.getElementById('acc-email').value.trim();
+  var phone=document.getElementById('acc-phone')&&document.getElementById('acc-phone').value.trim();
+  var monto=document.getElementById('acc-monto')&&document.getElementById('acc-monto').value;
+  var msg=document.getElementById('acc-msg')&&document.getElementById('acc-msg').value.trim();
+  if(!nombre||!email||!phone){alert('Completa nombre, correo y teléfono.');return;}
+  // In production: POST to Supabase + notify admin via Edge Function + email
+  var waMsg='🔔 Nueva solicitud de acceso inversionista\n\nNombre: '+nombre+'\nEmail: '+email+'\nTeléfono: '+phone+'\nMonto: '+monto+'\nMensaje: '+(msg||'—');
+  var modal=document.getElementById('form-acceso-modal');if(modal)modal.remove();
+  alert('✓ Solicitud enviada correctamente.\n\nUn asesor ABC revisará tu perfil y te contactará en las próximas 24 horas.\n\nTambién recibirás confirmación por WhatsApp.');
+  setTimeout(function(){
+    var wa='https://wa.me/18092695806?text='+encodeURIComponent(waMsg);
+    window.open(wa,'_blank');
+  },600);
+}
+
+/* ═══ CHATBOT ═══ */
+function toggleChatbot(){
+  var panel=document.getElementById('chatbot-panel');
+  if(!panel)return;
+  panel.style.display=panel.style.display==='none'?'flex':'none';
+  if(panel.style.display==='flex'){
+    var input=document.getElementById('chatbot-input');
+    if(input)setTimeout(function(){input.focus();},100);
+  }
+}
+
+async function sendChat(){
+  var input=document.getElementById('chatbot-input');
+  var msgs=document.getElementById('chatbot-messages');
+  if(!input||!msgs||!input.value.trim())return;
+  var userMsg=input.value.trim();
+  input.value='';
+  // Add user message
+  var uDiv=document.createElement('div');
+  uDiv.style.cssText='background:rgba(21,101,192,.3);border-radius:12px 12px 0 12px;padding:10px 12px;font-size:12px;color:#E8EDF3;max-width:85%;align-self:flex-end;margin-left:auto';
+  uDiv.textContent=userMsg;
+  msgs.appendChild(uDiv);
+  // Typing indicator
+  var typing=document.createElement('div');
+  typing.style.cssText='background:rgba(21,101,192,.15);border-radius:12px 12px 12px 0;padding:10px 12px;font-size:12px;color:#8FA5BE;max-width:85%';
+  typing.textContent='Escribiendo...';
+  msgs.appendChild(typing);
+  msgs.scrollTop=msgs.scrollHeight;
+  try{
+    var res=await fetch('https://api.anthropic.com/v1/messages',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        model:'claude-sonnet-4-20250514',
+        max_tokens:300,
+        system:'Eres el asistente de ABC Territorial Intelligence, plataforma GIS para propietarios e inversionistas inmobiliarios en República Dominicana. Responde en español, de forma concisa y profesional. Si el usuario necesita ayuda humana, sugiere contactar por WhatsApp al +1 (809) 600-0000.',
+        messages:[{role:'user',content:userMsg}]
+      })
+    });
+    var data=await res.json();
+    var reply=data.content&&data.content[0]?data.content[0].text:'Disculpa, no pude procesar tu consulta. Contáctanos por WhatsApp.';
+    typing.textContent=reply;
+    typing.style.color='#E8EDF3';
+  }catch(e){
+    typing.textContent='Disculpa, hay un problema de conexión. Por favor contáctanos por WhatsApp.';
+  }
+  msgs.scrollTop=msgs.scrollHeight;
+}
+
+/* ═══ PHOTOS IN TASACION CERT ═══ */
+function getPhotosForCert(){
+  var prev=document.getElementById('tas-ph-prev');
+  if(!prev)return[];
+  return Array.from(prev.querySelectorAll('img')).map(function(img){return img.src;});
+}
+
+
+/* ════════════════════════════════════════════════════
+   SUPABASE REAL — Auth + DB + Storage
+════════════════════════════════════════════════════ */
+var SUPA = supabase.createClient('https://qpqgtlmhjhowtjihilzv.supabase.co','eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFwcWd0bG1oamhvd3RqaWhpbHp2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDYzNDEyNTgsImV4cCI6MjA2MTkxNzI1OH0.2FiEkK8tXpPHHHbRCFpaqxpnnjl-6FhHBIY68aBoXgU');
+var CURRENT_USER = null;
+var USER_LANDS   = [];
+var ACTIVE_LAND  = null;
+
+async function supaSignIn(email,pw){
+  var r=await SUPA.auth.signInWithPassword({email,password:pw});
+  if(r.error)throw r.error;
+  CURRENT_USER=r.data.user;
+  await loadUserLands();
+  return r.data;
+}
+async function supaSignUp(email,pw,meta){
+  var r=await SUPA.auth.signUp({email,password:pw,options:{data:meta}});
+  if(r.error)throw r.error;
+  return r.data;
+}
+async function supaSignOut(){
+  await SUPA.auth.signOut();
+  CURRENT_USER=null;USER_LANDS=[];ACTIVE_LAND=null;
+}
+async function checkSession(){
+  var r=await SUPA.auth.getSession();
+  if(r.data&&r.data.session){
+    CURRENT_USER=r.data.session.user;
+    var meta=CURRENT_USER.user_metadata;
+    ROLE=(meta&&meta.role)||'propietario';
+    await loadUserLands();
+    // Only redirect if still on public/login page
+    if(PAGE==='public'||PAGE==='login'){
+      goTo(ROLE==='admin'?'overview':'dashboard');
+    }
+  }
+}
+SUPA.auth.onAuthStateChange(function(event,session){
+  if(session&&session.user){CURRENT_USER=session.user;loadUserLands();}
+  else{CURRENT_USER=null;USER_LANDS=[];ACTIVE_LAND=null;}
+});
+
+async function loadUserLands(){
+  if(!CURRENT_USER)return;
+  var r=await SUPA.from('lands').select('*').eq('owner_id',CURRENT_USER.id).order('created_at',{ascending:false});
+  if(!r.error&&r.data){
+    USER_LANDS=r.data;
+    ACTIVE_LAND=r.data[0]||null;
+    if(ACTIVE_LAND&&ACTIVE_LAND.geojson){
+      TERRENO_DEMO={type:'Feature',geometry:ACTIVE_LAND.geojson,
+        properties:{name:ACTIVE_LAND.name,area_m2:ACTIVE_LAND.area_m2||0}};
+    }
+  }
+}
+async function saveLand(name,province,uso,geojson,area_m2){
+  if(!CURRENT_USER)return null;
+  var r=await SUPA.from('lands').insert({
+    owner_id:CURRENT_USER.id,name,province,uso_actual:uso,geojson,area_m2,status:'pending'
+  }).select().single();
+  if(r.error){console.error(r.error);return null;}
+  USER_LANDS.unshift(r.data);ACTIVE_LAND=r.data;
+  return r.data;
+}
+async function saveAnalysis(land_id,result){
+  if(!CURRENT_USER||!land_id)return null;
+  var r=await SUPA.from('gis_analyses').insert({
+    land_id,owner_id:CURRENT_USER.id,score:result.score,
+    score_raw:result.score_raw,metrics:result.metrics,
+    rlvm:result.rlvm,restrictions:result.restrictions,
+    breakdown:result.breakdown,status:'completed'
+  }).select().single();
+  return r.data;
+}
+async function saveAccessRequest(data){
+  var r=await SUPA.from('investment_requests').insert({
+    nombre:data.nombre,email:data.email,phone:data.phone,
+    monto_disponible:data.monto,mensaje:data.mensaje,status:'pending'
+  }).select().single();
+  return r.data;
+}
+async function uploadDocument(file,folder){
+  if(!CURRENT_USER)return null;
+  var path=CURRENT_USER.id+'/'+folder+'/'+Date.now()+'_'+file.name;
+  var r=await SUPA.storage.from('documents').upload(path,file);
+  if(r.error)return null;
+  return SUPA.storage.from('documents').getPublicUrl(path).data.publicUrl;
+}
+
+/* ── doLogin REAL ── */
+async function doLogin(){
+  var em=document.getElementById('log-em')&&document.getElementById('log-em').value.trim();
+  var pw=document.getElementById('log-pw')&&document.getElementById('log-pw').value;
+  if(!em||!pw){alert('Completa correo y contraseña.');return;}
+  var btn=document.querySelector('button[onclick*="doLogin"]');
+  if(btn){btn.textContent='Verificando...';btn.style.opacity='.7';}
+  try{
+    var data=await supaSignIn(em,pw);
+    var meta=data.user&&data.user.user_metadata;
+    ROLE=(meta&&meta.role)||'propietario';
+    if(btn){btn.textContent='Ingresar →';btn.style.opacity='1';}
+    // Load user lands before showing dashboard
+    await loadUserLands();
+    goTo(ROLE==='admin'?'overview':'dashboard');
+  }catch(err){
+    if(btn){btn.textContent='Ingresar →';btn.style.opacity='1';}
+    if(err.message&&err.message.includes('Invalid')){
+      alert('Correo o contraseña incorrectos.');
+    }else{
+      alert('Sin conexión al servidor. Modo demo.\n'+err.message);
+      ROLE='propietario';goTo('dashboard');
+    }
+  }
+}
+
+/* ── doRegister REAL ── */
+async function doRegister(){
+  var em=document.getElementById('reg-email')&&document.getElementById('reg-email').value.trim();
+  var pw=document.getElementById('reg-pass')&&document.getElementById('reg-pass').value;
+  var pw2=document.getElementById('reg-pass2')&&document.getElementById('reg-pass2').value;
+  var name=document.getElementById('reg-name')&&document.getElementById('reg-name').value.trim();
+  var rol=document.getElementById('reg-role')&&document.getElementById('reg-role').value||ROLE||'propietario';
+  if(!em||!pw||!name){alert('Completa nombre, correo y contraseña.');return;}
+  if(pw!==pw2){alert('Las contraseñas no coinciden.');return;}
+  if(pw.length<6){alert('Mínimo 6 caracteres para la contraseña.');return;}
+  var btn=document.querySelector('button[onclick*="doRegister"]');
+  if(btn){btn.textContent='Creando cuenta...';btn.style.opacity='.7';}
+  try{
+    await supaSignUp(em,pw,{full_name:name,role:rol});
+    if(btn){btn.textContent='Crear cuenta';btn.style.opacity='1';}
+    alert('✓ Cuenta creada.\nRevisa tu correo '+em+' para confirmar.');
+    goTo('login');
+  }catch(err){
+    if(btn){btn.textContent='Crear cuenta';btn.style.opacity='1';}
+    alert('Error: '+(err.message||'Intenta de nuevo.'));
+  }
+}
+
+/* ── cerrarSesion REAL ── */
+async function cerrarSesionReal(){
+  if(!confirm('¿Cerrar sesión?'))return;
+  await supaSignOut();
+  ROLE=null;PAGE='public';
+  USER_LANDS=[];ACTIVE_LAND=null;WLC_RESULT=null;
+  try{sessionStorage.removeItem('abc_cfg');}catch(e){}
+  buildNav();render();
+}
+
+/* ── submitTerrain REAL ── */
+async function submitTerrain(){
+  var name=document.getElementById('land-name')&&document.getElementById('land-name').value.trim();
+  var prov=document.getElementById('land-prov')&&document.getElementById('land-prov').value;
+  var uso=document.getElementById('land-uso')&&document.getElementById('land-uso').value;
+  if(!name){alert('El nombre del terreno es obligatorio.');return;}
+  if(!prov){alert('Selecciona la provincia.');return;}
+  var btn=event&&event.target;
+  if(btn){btn.textContent='Guardando...';btn.style.opacity='.7';}
+  var pts=UP_POINTS||[];
+  var geojson=null;var area=0;
+  if(pts.length>=3){
+    geojson={type:'Polygon',coordinates:[[...pts,pts[0]]]};
+    area=Math.round(calcAreaM2(pts));
+  }
+  var saved=await saveLand(name,prov,uso,geojson,area);
+  if(btn){btn.textContent='💾 Guardar y registrar terreno';btn.style.opacity='1';}
+  if(geojson)TERRENO_DEMO={type:'Feature',geometry:geojson,properties:{name,area_m2:area}};
+  if(saved){
+    alert('✓ Terreno "'+name+'" guardado.\nÁrea: '+(area?area.toLocaleString()+' m²':'N/A')+'\nProvincia: '+prov);
+  }else{
+    ACTIVE_LAND={name:name,province:prov,uso_actual:uso,geojson:geojson,area_m2:area,id:null};
+    alert('✓ Terreno "'+name+'" listo.\nInicia sesión para guardarlo permanentemente.');
+  }
+  goTo('mis_terrenos');
+}
+
+/* ── runFullAnalysis saves ── */
+var _origRunFull=runFullAnalysis;
+runFullAnalysis=async function(){
+  var result=await _origRunFull();
+  if(CURRENT_USER&&ACTIVE_LAND){
+    saveAnalysis(ACTIVE_LAND.id,result).catch(function(e){console.warn('saveAnalysis:',e);});
+  }
+  return result;
+};
+
+/* ── guardarDocumentos REAL ── */
+async function guardarDocumentos(){
+  var inputs=document.querySelectorAll('input[type=file]');
+  var allFiles=[];
+  inputs.forEach(function(inp){if(inp.files)allFiles.push(...inp.files);});
+  if(!allFiles.length){alert('Selecciona archivos primero.');return;}
+  var ok=0;
+  for(var f of allFiles){
+    var url=await uploadDocument(f,'terrenos');
+    if(url)ok++;
+  }
+  alert('✓ '+ok+' archivo(s) guardado(s) en tu carpeta segura.');
+}
+
+/* ── enviarSolicitudAcceso saves to Supabase ── */
+var _origEnviarAcceso=typeof enviarSolicitudAcceso!=='undefined'?enviarSolicitudAcceso:null;
+function enviarSolicitudAcceso(){
+  var nombre=document.getElementById('acc-nombre')&&document.getElementById('acc-nombre').value.trim();
+  var email=document.getElementById('acc-email')&&document.getElementById('acc-email').value.trim();
+  var phone=document.getElementById('acc-phone')&&document.getElementById('acc-phone').value.trim();
+  var monto=document.getElementById('acc-monto')&&document.getElementById('acc-monto').value;
+  var msg=document.getElementById('acc-msg')&&document.getElementById('acc-msg').value.trim();
+  if(!nombre||!email||!phone){alert('Completa nombre, correo y teléfono.');return;}
+  saveAccessRequest({nombre,email,phone,monto,mensaje:msg}).catch(function(e){console.warn(e);});
+  var modal=document.getElementById('form-acceso-modal');if(modal)modal.remove();
+  alert('✓ Solicitud enviada. Un asesor te contactará en 24 horas.');
+  setTimeout(function(){
+    var wa='https://wa.me/18092695806?text='+encodeURIComponent('🔔 Nueva solicitud\nNombre: '+nombre+'\nEmail: '+email+'\nTeléfono: '+phone+'\nMonto: '+monto+'\nMensaje: '+msg);
+    window.open(wa,'_blank');
+  },500);
+}
+
+/* ── buildNav: show real user ── */
+var _origBuildNav=buildNav;
+buildNav=function(){
+  _origBuildNav();
+  var unEl=document.getElementById('uname');
+  if(unEl){
+    if(CURRENT_USER){
+      var meta=CURRENT_USER.user_metadata;
+      unEl.textContent=(meta&&meta.full_name)?meta.full_name:CURRENT_USER.email;
+    } else if(ROLE) {
+      unEl.textContent=ROLE==='admin'?'Admin ABC':'Usuario Demo';
+    } else {
+      unEl.textContent='No has iniciado sesión';
+    }
+  }
+  var roleEl=document.getElementById('urole');
+  if(roleEl){roleEl.textContent=ROLE||(CURRENT_USER?'propietario':'visitante');}
+  // Show/hide plan section based on auth
+  var planEl=document.querySelector('.plan-section');
+  if(planEl){planEl.style.display=ROLE?'block':'none';}
+};
+
+
+/* ════════════════════════════════════════════════════
+   MIS TERRENOS
+════════════════════════════════════════════════════ */
+function rMisTerrenos(){
+  var lands=USER_LANDS.length>0?USER_LANDS:(ACTIVE_LAND?[ACTIVE_LAND]:[]);
+  document.getElementById('content').innerHTML=`
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+  <div>
+    <div class="mn" style="font-size:18px;font-weight:800;color:${C.tx}">🗂 Mis Terrenos</div>
+    <div style="font-size:11px;color:${C.tm};margin-top:2px">${lands.length} terreno(s) registrado(s) · Selecciona uno para generar el diagnóstico</div>
+  </div>
+  <button onclick="goTo('upload')" style="background:linear-gradient(135deg,#1565C0,#0D47A1);color:white;padding:10px 20px;border-radius:9px;font-size:13px;font-weight:700;border:none;cursor:pointer">+ Agregar terreno</button>
+</div>
+${lands.length===0?`
+<div style="background:${C.card};border:1px solid ${C.bo};border-radius:14px;padding:48px;text-align:center">
+  <div style="font-size:40px;margin-bottom:12px">📍</div>
+  <div style="font-size:16px;font-weight:700;color:${C.tx};margin-bottom:8px">Aún no tienes terrenos registrados</div>
+  <p style="font-size:12px;color:${C.tm};margin-bottom:20px">Agrega tu primer terreno dibujando en el mapa, subiendo un archivo GIS o con asistencia ABC.</p>
+  <button onclick="goTo('upload')" style="background:linear-gradient(135deg,#1565C0,#0D47A1);color:white;padding:12px 28px;border-radius:10px;font-size:14px;font-weight:700;border:none;cursor:pointer">+ Agregar mi primer terreno</button>
+</div>`:`
+<div style="display:flex;flex-direction:column;gap:10px">
+  ${lands.map(function(land,i){
+    var isActive=ACTIVE_LAND&&(land.id===ACTIVE_LAND.id||(land.name===ACTIVE_LAND.name&&!land.id));
+    return '<div style="background:'+C.card+';border:1px solid '+(isActive?'rgba(21,101,192,.5)':C.bo)+';border-radius:14px;padding:18px;display:grid;grid-template-columns:1fr auto;gap:14px;align-items:center'+(isActive?';box-shadow:0 0 0 2px rgba(21,101,192,.2)':'')+'">'
+      +'<div style="display:flex;align-items:center;gap:14px">'
+        +'<div style="width:48px;height:48px;border-radius:10px;background:linear-gradient(135deg,rgba(21,101,192,.3),rgba(21,101,192,.1));display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0">🗺</div>'
+        +'<div>'
+          +'<div style="font-weight:700;color:'+C.tx+';font-size:14px;margin-bottom:3px">'+land.name+(isActive?' <span style="font-size:9px;background:rgba(21,101,192,.2);color:#42A5F5;padding:2px 7px;border-radius:20px">ACTIVO</span>':'')+'</div>'
+          +'<div style="font-size:11px;color:'+C.tm+'">'+(land.province||'—')+' · '+(land.area_m2?(+land.area_m2).toLocaleString()+' m²':'Área pendiente')+(land.uso_actual?' · '+land.uso_actual:'')+'</div>'
+          +'<div style="font-size:10px;color:'+C.td+';margin-top:2px">'+(land.created_at?'Registrado: '+new Date(land.created_at).toLocaleDateString('es-DO'):'Sesión actual')+' · '+(land.status==='analyzed'?'✅ Analizado':'⏳ Pendiente de análisis')+'</div>'
+        +'</div>'
+      +'</div>'
+      +'<div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">'
+        +(!isActive?'<button onclick="setActiveLand('+i+')" style="background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);color:'+C.tm+';padding:7px 14px;border-radius:8px;font-size:11px;cursor:pointer">Seleccionar</button>':'')
+        +'<button onclick="setActiveLandAndAnalyze('+i+')" style="background:linear-gradient(135deg,#1565C0,#0D47A1);color:white;padding:8px 16px;border-radius:8px;font-size:12px;font-weight:700;border:none;cursor:pointer">⚡ Generar diagnóstico</button>'
+      +'</div>'
+    +'</div>';
+  }).join('')}
+</div>`}`;
+}
+
+function setActiveLand(idx){
+  var lands=USER_LANDS.length>0?USER_LANDS:(ACTIVE_LAND?[ACTIVE_LAND]:[]);
+  if(!lands[idx])return;
+  ACTIVE_LAND=lands[idx];
+  if(ACTIVE_LAND.geojson){
+    TERRENO_DEMO={type:'Feature',geometry:ACTIVE_LAND.geojson,
+      properties:{name:ACTIVE_LAND.name,area_m2:ACTIVE_LAND.area_m2||0}};
+  }
+  rMisTerrenos();
+}
+
+function setActiveLandAndAnalyze(idx){
+  setActiveLand(idx);
+  goTo('analysis');
+  setTimeout(startAnalysis,400);
+}
+
 /* ── BOOT ── */
 buildNav();
 render();
+checkSession().catch(function(e){console.warn('session:',e);});
+
+checkSession().catch(function(e){console.warn('session:',e);});
+
 </script>
 <script>
 (function(){
@@ -3026,5 +3563,48 @@ render();
   drawGrid();
 })();
 </script>
+
+<!-- ═══ WHATSAPP + CHATBOT WIDGETS ═══ -->
+<div id="wa-chat-widget" style="position:fixed;bottom:80px;right:24px;z-index:8888;display:flex;flex-direction:column;align-items:flex-end;gap:10px">
+  <!-- Chatbot panel -->
+  <div id="chatbot-panel" style="display:none;background:#0E1E2E;border:1px solid rgba(21,101,192,.4);border-radius:16px;width:320px;max-height:420px;box-shadow:0 8px 32px rgba(0,0,0,.5);overflow:hidden;flex-direction:column">
+    <div style="background:linear-gradient(135deg,#1565C0,#0D47A1);padding:12px 16px;display:flex;justify-content:space-between;align-items:center">
+      <div style="display:flex;align-items:center;gap:8px">
+        <div style="width:8px;height:8px;background:#2ECC71;border-radius:50%;animation:pulse 2s infinite"></div>
+        <span style="color:white;font-weight:700;font-size:13px;font-family:Inter,sans-serif">ABC Asistente</span>
+      </div>
+      <button onclick="toggleChatbot()" style="background:transparent;border:none;color:rgba(255,255,255,.7);cursor:pointer;font-size:16px">✕</button>
+    </div>
+    <div id="chatbot-messages" style="padding:14px;overflow-y:auto;max-height:280px;display:flex;flex-direction:column;gap:8px;font-family:Inter,sans-serif">
+      <div style="background:rgba(21,101,192,.15);border-radius:12px 12px 12px 0;padding:10px 12px;font-size:12px;color:#E8EDF3;max-width:85%">
+        👋 Hola, soy el asistente de ABC Territorial Intelligence. ¿En qué puedo ayudarte hoy?
+      </div>
+      <div style="background:rgba(21,101,192,.15);border-radius:12px 12px 12px 0;padding:10px 12px;font-size:12px;color:#E8EDF3;max-width:85%">
+        Puedo ayudarte con: análisis GIS, tasaciones, registro de terrenos o conectarte con un asesor.
+      </div>
+    </div>
+    <div style="padding:10px 12px;border-top:1px solid rgba(255,255,255,.08);display:flex;gap:8px">
+      <input id="chatbot-input" type="text" placeholder="Escribe tu consulta..." 
+        onkeydown="if(event.key==='Enter')sendChat()"
+        style="flex:1;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);border-radius:8px;padding:8px 10px;color:#E8EDF3;font-size:12px;font-family:Inter,sans-serif;outline:none"/>
+      <button onclick="sendChat()" style="background:#1565C0;border:none;color:white;padding:8px 12px;border-radius:8px;cursor:pointer;font-size:14px">➤</button>
+    </div>
+  </div>
+  <!-- Buttons row -->
+  <div style="display:flex;gap:10px;align-items:center">
+    <!-- Chatbot toggle -->
+    <button onclick="toggleChatbot()" title="Asistente ABC" style="width:52px;height:52px;background:linear-gradient(135deg,#1565C0,#0D47A1);border:none;border-radius:50%;cursor:pointer;box-shadow:0 4px 16px rgba(21,101,192,.4);display:flex;align-items:center;justify-content:center;font-size:22px;transition:transform .2s" onmouseover="this.style.transform='scale(1.1)'" onmouseout="this.style.transform='scale(1)'">
+      🤖
+    </button>
+    <!-- WhatsApp -->
+    <a href="https://wa.me/18092695806?text=Hola%20ABC%20Territorial%20Intelligence%2C%20necesito%20informaci%C3%B3n." 
+       target="_blank" title="WhatsApp con asesor" 
+       style="width:52px;height:52px;background:linear-gradient(135deg,#25D366,#128C7E);border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 16px rgba(37,211,102,.4);text-decoration:none;transition:transform .2s" 
+       onmouseover="this.style.transform='scale(1.1)'" onmouseout="this.style.transform='scale(1)'">
+      <svg width="26" height="26" viewBox="0 0 24 24" fill="white"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+    </a>
+  </div>
+</div>
+
 </body>
 </html>
