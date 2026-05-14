@@ -1,7 +1,0 @@
-{
-  "version": 2,
-  "routes": [
-    { "src": "/", "dest": "/ABC_Final.html" },
-    { "src": "/ABC_Final.html", "dest": "/ABC_Final.html" }
-  ]
-}
