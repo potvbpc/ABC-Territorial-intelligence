@@ -3844,36 +3844,57 @@ async function checkSession(){
     CURRENT_USER=r.data.session.user;
     var meta=CURRENT_USER.user_metadata;
     ROLE=(meta&&meta.role)||'propietario';
+    buildNav();
     await loadUserLands();
-    // Only redirect if still on public/login page
+    // Redirigir si está en página pública/login
     if(PAGE==='public'||PAGE==='login'){
       goTo(ROLE==='admin'?'overview':'dashboard');
+    } else {
+      // Si ya está en una vista interna, redibujar con los datos cargados
+      try{render();}catch(e){}
     }
   }
 }
-SUPA.auth.onAuthStateChange(function(event,session){
-  if(session&&session.user){CURRENT_USER=session.user;loadUserLands();}
-  else{CURRENT_USER=null;USER_LANDS=[];ACTIVE_LAND=null;}
+SUPA.auth.onAuthStateChange(async function(event,session){
+  if(session&&session.user){
+    CURRENT_USER=session.user;
+    var meta=CURRENT_USER.user_metadata;
+    ROLE=(meta&&meta.role)||ROLE||'propietario';
+    await loadUserLands();
+  } else {
+    CURRENT_USER=null;USER_LANDS=[];ACTIVE_LAND=null;
+  }
 });
 
 async function loadUserLands(){
   if(!CURRENT_USER)return;
   var r=await SUPA.from('lands').select('*').eq('owner_id',CURRENT_USER.id).order('created_at',{ascending:false});
-  if(!r.error&&r.data){
+  if(r.error){console.error('loadUserLands error:',r.error);return;}
+  if(r.data){
     USER_LANDS=r.data;
-    ACTIVE_LAND=r.data[0]||null;
+    if(!ACTIVE_LAND||!ACTIVE_LAND.id){ACTIVE_LAND=r.data[0]||null;}
     if(ACTIVE_LAND&&ACTIVE_LAND.geojson){
       TERRENO_DEMO={type:'Feature',geometry:ACTIVE_LAND.geojson,
         properties:{name:ACTIVE_LAND.name,area_m2:ACTIVE_LAND.area_m2||0}};
     }
+    // Redibujar la vista actual si depende de los terrenos cargados
+    if(typeof PAGE!=='undefined'&&(PAGE==='mis_terrenos'||PAGE==='dashboard')){
+      try{render();}catch(e){}
+    }
   }
 }
 async function saveLand(name,province,uso,geojson,area_m2){
-  if(!CURRENT_USER)return null;
+  if(!CURRENT_USER){console.warn('saveLand: no hay usuario autenticado');return null;}
   var r=await SUPA.from('lands').insert({
-    owner_id:CURRENT_USER.id,name,province,uso_actual:uso,geojson,area_m2,status:'pending'
+    owner_id:CURRENT_USER.id,name:name,province:province,uso_actual:uso,
+    geojson:geojson,area_m2:area_m2,status:'pending'
   }).select().single();
-  if(r.error){console.error(r.error);return null;}
+  if(r.error){
+    console.error('saveLand error:',r.error);
+    alert('⚠ Error al guardar el terreno: '+(r.error.message||'verifica tu conexión')+'\n\nDetalle técnico: '+(r.error.details||r.error.hint||'—'));
+    return null;
+  }
+  if(!USER_LANDS)USER_LANDS=[];
   USER_LANDS.unshift(r.data);ACTIVE_LAND=r.data;
   return r.data;
 }
