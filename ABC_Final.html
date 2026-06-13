@@ -38,7 +38,7 @@ select.inp option{background:#0E1E2E}
 .fa2{animation:fu .33s .14s ease both}
 </style>
 </head>
-<!-- VERSION-DEPLOY: VF1 — Fix persistencia terrenos + sesión al recargar -->
+<!-- VERSION-DEPLOY: VF2 — Eliminado submitTerrain duplicado + error visible al guardar -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -1705,6 +1705,7 @@ async function submitTerrain(){
       uso_actual:uso,geojson:geojson,area_m2:area,status:'pending'
     }).select().single();
     if(!ins.error){saved=ins.data;if(!USER_LANDS)USER_LANDS=[];USER_LANDS.unshift(saved);ACTIVE_LAND=saved;}
+    else{console.error('Insert lands error:',ins.error);alert('⚠ No se pudo guardar en la nube: '+(ins.error.message||'')+'\n'+(ins.error.hint||ins.error.details||''));}
   }
   if(!saved){
     saved={id:null,name:name,province:prov,municipio:mun,uso_actual:uso,geojson:geojson,area_m2:area,status:'local'};
@@ -3988,32 +3989,7 @@ async function cerrarSesionReal(){
   buildNav();render();
 }
 
-/* ── submitTerrain REAL ── */
-async function submitTerrain(){
-  var name=document.getElementById('land-name')&&document.getElementById('land-name').value.trim();
-  var prov=document.getElementById('land-prov')&&document.getElementById('land-prov').value;
-  var uso=document.getElementById('land-uso')&&document.getElementById('land-uso').value;
-  if(!name){alert('El nombre del terreno es obligatorio.');return;}
-  if(!prov){alert('Selecciona la provincia.');return;}
-  var btn=event&&event.target;
-  if(btn){btn.textContent='Guardando...';btn.style.opacity='.7';}
-  var pts=UP_POINTS||[];
-  var geojson=null;var area=0;
-  if(pts.length>=3){
-    geojson={type:'Polygon',coordinates:[[...pts,pts[0]]]};
-    area=Math.round(calcAreaM2(pts));
-  }
-  var saved=await saveLand(name,prov,uso,geojson,area);
-  if(btn){btn.textContent='💾 Guardar y registrar terreno';btn.style.opacity='1';}
-  if(geojson)TERRENO_DEMO={type:'Feature',geometry:geojson,properties:{name,area_m2:area}};
-  if(saved){
-    alert('✓ Terreno "'+name+'" guardado.\nÁrea: '+(area?area.toLocaleString()+' m²':'N/A')+'\nProvincia: '+prov);
-  }else{
-    ACTIVE_LAND={name:name,province:prov,uso_actual:uso,geojson:geojson,area_m2:area,id:null};
-    alert('✓ Terreno "'+name+'" listo.\nInicia sesión para guardarlo permanentemente.');
-  }
-  goTo('mis_terrenos');
-}
+/* submitTerrain unificada arriba (línea ~1686) — duplicado eliminado en VF2 */
 
 /* ── runFullAnalysis saves ── */
 var _origRunFull=runFullAnalysis;
