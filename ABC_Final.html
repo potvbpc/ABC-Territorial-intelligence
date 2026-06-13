@@ -10,7 +10,8 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <link href="https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.css" rel="stylesheet"/>
 <script src="https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.js"></script>
-<style>.mapboxgl-ctrl-logo,.mapboxgl-ctrl-attrib{display:none!important}.abc-popup .mapboxgl-popup-content{background:transparent!important;padding:0!important;box-shadow:none!important;border:none!important}.abc-popup .mapboxgl-popup-tip{display:none!important}</style>
+<style>.mapboxgl-ctrl-logo,.mapboxgl-ctrl-attrib{display:none!important}.abc-popup .mapboxgl-popup-content{background:transparent!important;padding:0!important;box-shadow:none!important;border:none!important}.abc-popup .mapboxgl-popup-tip{display:none!important}@keyframes abcspin{to{transform:rotate(360deg)}}
+</style>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100vh;overflow:hidden;background:#061019;color:#E8EDF3;font-family:'Inter',sans-serif;-webkit-font-smoothing:antialiased}
@@ -38,7 +39,7 @@ select.inp option{background:#0E1E2E}
 .fa2{animation:fu .33s .14s ease both}
 </style>
 </head>
-<!-- VERSION-DEPLOY: VF3 — Fix initMapClicks que bloqueaba el guardado de terrenos -->
+<!-- VERSION-DEPLOY: VF4 — Arranque ordenado: sesión persiste, sin login frizado, terrenos cargan al recargar -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -3820,7 +3821,9 @@ function getPhotosForCert(){
    SUPABASE REAL — Auth + DB + Storage
 ════════════════════════════════════════════════════ */
 /* ABC-TI-BUILD-20260519-SUPABASE-REAL */
-var SUPA = supabase.createClient('https://qpqgtlmhjhowtjihilzv.supabase.co','sb_publishable_K41tudrgBw-H2tFNzNTn0w_SQatpMoU');
+var SUPA = supabase.createClient('https://qpqgtlmhjhowtjihilzv.supabase.co','sb_publishable_K41tudrgBw-H2tFNzNTn0w_SQatpMoU',{
+  auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true,storageKey:'abc-ti-auth'}
+});
 var CURRENT_USER = null;
 var USER_LANDS   = [];
 var ACTIVE_LAND  = null;
@@ -3849,28 +3852,25 @@ async function checkSession(){
     ROLE=(meta&&meta.role)||'propietario';
     var adminEmails=['abc.projectseirl@gmail.com','admin@abcprojectsrd.com'];
     if(adminEmails.indexOf(CURRENT_USER.email)>=0)ROLE='admin';
-    // 1. Determinar destino ANTES de cargar datos (evita parpadeo a login)
-    var destino;
+    // 1. Cargar terrenos PRIMERO (await), luego renderizar con datos completos
+    await loadUserLands();
+    // 2. Determinar y fijar la vista destino
     if(PAGE==='public'||PAGE==='login'||!PAGE){
-      destino=(ROLE==='admin'?'overview':'dashboard');
-    } else {
-      destino=PAGE; // mantener la vista actual si ya es interna
+      PAGE=(ROLE==='admin'?'overview':'dashboard');
     }
-    PAGE=destino;
     buildNav();
     render();
-    // 2. Cargar terrenos en segundo plano y redibujar cuando lleguen
-    await loadUserLands();
   }
 }
-SUPA.auth.onAuthStateChange(async function(event,session){
-  if(session&&session.user){
+SUPA.auth.onAuthStateChange(function(event,session){
+  // Solo actualizar estado básico. La carga de datos la maneja checkSession
+  // o doLogin para evitar doble ejecución que congela la UI.
+  if(event==='SIGNED_OUT'||!session){
+    CURRENT_USER=null;USER_LANDS=[];ACTIVE_LAND=null;
+  } else if(session&&session.user){
     CURRENT_USER=session.user;
     var meta=CURRENT_USER.user_metadata;
     ROLE=(meta&&meta.role)||ROLE||'propietario';
-    await loadUserLands();
-  } else {
-    CURRENT_USER=null;USER_LANDS=[];ACTIVE_LAND=null;
   }
 });
 
@@ -3885,8 +3885,8 @@ async function loadUserLands(){
       TERRENO_DEMO={type:'Feature',geometry:ACTIVE_LAND.geojson,
         properties:{name:ACTIVE_LAND.name,area_m2:ACTIVE_LAND.area_m2||0}};
     }
-    // Redibujar la vista actual para reflejar los terrenos cargados
-    if(typeof PAGE!=='undefined'&&PAGE!=='public'&&PAGE!=='login'){
+    // Redibujar solo si ya estamos en una vista que muestra terrenos
+    if(typeof PAGE!=='undefined'&&(PAGE==='mis_terrenos'||PAGE==='dashboard')){
       try{render();}catch(e){}
     }
   }
@@ -4144,9 +4144,20 @@ async function showTasacionTab(tab){var btnN=document.getElementById('tab-nueva'
 async function renderMisTasaciones(){var con=document.getElementById('content');if(!con)return;var ex=document.getElementById('mis-tasaciones-section');if(ex)ex.remove();var sec=document.createElement('div');sec.id='mis-tasaciones-section';var items=await loadMisTasaciones();if(items.length===0){sec.innerHTML='<div style="text-align:center;padding:32px;background:#0E1E2E;border:1px solid rgba(255,255,255,.09);border-radius:12px"><div style="font-size:32px">&#x1F4CB;</div><div style="color:#8FA5BE;margin-top:8px">No hay tasaciones guardadas.</div></div>';}else{sec.innerHTML=items.map(function(t){var d=t.data_json||{};var f=t.created_at?new Date(t.created_at).toLocaleDateString('es-DO'):'—';return '<div style="background:#0E1E2E;border:1px solid rgba(255,255,255,.09);border-radius:10px;padding:14px 16px;display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><div><div style="font-size:13px;font-weight:600;color:#E8EDF3">'+(d.numero||'Tasacion')+'</div><div style="font-size:11px;color:#8FA5BE;margin-top:2px">'+(d.propietario||'—')+' · '+f+'</div></div><div style="display:flex;gap:6px"><button onclick="window.print()" style="background:rgba(21,101,192,.15);border:1px solid rgba(21,101,192,.3);color:#42A5F5;padding:6px 12px;border-radius:7px;font-size:11px;cursor:pointer">Imprimir</button><button onclick="deleteTasacion(\"'+t.id+'\")" style="background:rgba(231,76,60,.1);border:1px solid rgba(231,76,60,.3);color:#E74C3C;padding:6px 12px;border-radius:7px;font-size:11px;cursor:pointer">Eliminar</button></div></div>';}).join('');}
 con.appendChild(sec);}
 /* ── BOOT ── */
+// Mostrar loader mientras se verifica la sesión (evita parpadeo a login)
+(function(){
+  var c=document.getElementById('content');
+  if(c)c.innerHTML='<div style="display:flex;align-items:center;justify-content:center;height:60vh;flex-direction:column;gap:14px"><div style="width:42px;height:42px;border:3px solid rgba(21,101,192,.2);border-top-color:#1565C0;border-radius:50%;animation:abcspin .8s linear infinite"></div><div style="color:#8FA5BE;font-size:13px">Cargando tu cuenta...</div></div>';
+})();
 buildNav();
-render();
-checkSession().catch(function(e){console.warn('session:',e);});
+// checkSession decide la vista final (dashboard si hay sesión, public si no)
+checkSession().then(function(){
+  // Si NO había sesión, mostrar la vista pública
+  if(!CURRENT_USER){PAGE='public';buildNav();render();}
+}).catch(function(e){
+  console.warn('session:',e);
+  PAGE='public';buildNav();render();
+});
 
 </script>
 <script>
