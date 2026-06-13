@@ -38,6 +38,7 @@ select.inp option{background:#0E1E2E}
 .fa2{animation:fu .33s .14s ease both}
 </style>
 </head>
+<!-- VERSION-DEPLOY: VF1 — Fix persistencia terrenos + sesión al recargar -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -3844,15 +3845,20 @@ async function checkSession(){
     CURRENT_USER=r.data.session.user;
     var meta=CURRENT_USER.user_metadata;
     ROLE=(meta&&meta.role)||'propietario';
-    buildNav();
-    await loadUserLands();
-    // Redirigir si está en página pública/login
-    if(PAGE==='public'||PAGE==='login'){
-      goTo(ROLE==='admin'?'overview':'dashboard');
+    var adminEmails=['abc.projectseirl@gmail.com','admin@abcprojectsrd.com'];
+    if(adminEmails.indexOf(CURRENT_USER.email)>=0)ROLE='admin';
+    // 1. Determinar destino ANTES de cargar datos (evita parpadeo a login)
+    var destino;
+    if(PAGE==='public'||PAGE==='login'||!PAGE){
+      destino=(ROLE==='admin'?'overview':'dashboard');
     } else {
-      // Si ya está en una vista interna, redibujar con los datos cargados
-      try{render();}catch(e){}
+      destino=PAGE; // mantener la vista actual si ya es interna
     }
+    PAGE=destino;
+    buildNav();
+    render();
+    // 2. Cargar terrenos en segundo plano y redibujar cuando lleguen
+    await loadUserLands();
   }
 }
 SUPA.auth.onAuthStateChange(async function(event,session){
@@ -3877,8 +3883,8 @@ async function loadUserLands(){
       TERRENO_DEMO={type:'Feature',geometry:ACTIVE_LAND.geojson,
         properties:{name:ACTIVE_LAND.name,area_m2:ACTIVE_LAND.area_m2||0}};
     }
-    // Redibujar la vista actual si depende de los terrenos cargados
-    if(typeof PAGE!=='undefined'&&(PAGE==='mis_terrenos'||PAGE==='dashboard')){
+    // Redibujar la vista actual para reflejar los terrenos cargados
+    if(typeof PAGE!=='undefined'&&PAGE!=='public'&&PAGE!=='login'){
       try{render();}catch(e){}
     }
   }
@@ -4163,8 +4169,6 @@ con.appendChild(sec);}
 /* ── BOOT ── */
 buildNav();
 render();
-checkSession().catch(function(e){console.warn('session:',e);});
-
 checkSession().catch(function(e){console.warn('session:',e);});
 
 </script>
