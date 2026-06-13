@@ -38,7 +38,7 @@ select.inp option{background:#0E1E2E}
 .fa2{animation:fu .33s .14s ease both}
 </style>
 </head>
-<!-- VERSION-DEPLOY: VF2 — Eliminado submitTerrain duplicado + error visible al guardar -->
+<!-- VERSION-DEPLOY: VF3 — Fix initMapClicks que bloqueaba el guardado de terrenos -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -1476,7 +1476,7 @@ function rUpload(){
 </div>`;
 
   window._polyPoints=[];
-  setTimeout(()=>{ delete DRAWN["up-map"]; initUploadMap("up-map"); initMapClicks(); },80);
+  setTimeout(()=>{ delete DRAWN["up-map"]; initUploadMap("up-map"); },80);
 }
 
 function selectUploadMethod(m){
@@ -2875,6 +2875,7 @@ function mbCreate(id,opts){
 
 function initDashMap(id){mbCreate(id,{zoom:14});}
 function initAnalysisMap(id){mbCreate(id,{zoom:13});}
+function initMapClicks(){/* compat: initUploadMap maneja los clics; stub seguro */}
 function initUploadMap(id){
   UP_POINTS=[];
   var map=mbCreate(id,{zoom:13,onLoad:function(m){
