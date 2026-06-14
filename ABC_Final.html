@@ -39,7 +39,7 @@ select.inp option{background:#0E1E2E}
 .fa2{animation:fu .33s .14s ease both}
 </style>
 </head>
-<!-- VERSION-DEPLOY: VF5 — Certificado muestra polígono real del lote con zoom automático -->
+<!-- VERSION-DEPLOY: VF6 — Polígono del certificado con GeoJSON overlay (sintaxis Mapbox correcta) -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -1590,19 +1590,7 @@ function selectUploadMethod(m){
   }
 }
 
-function addMapPoint(event){
-  const canvas=document.getElementById("up-map");if(!canvas)return;
-  const rect=canvas.getBoundingClientRect();
-  const x=(event.clientX-rect.left)/(rect.width/canvas.offsetWidth);
-  const y=(event.clientY-rect.top)/(rect.height/canvas.offsetHeight);
-  if(!window._polyPoints)window._polyPoints=[];
-  window._polyPoints.push([x,y]);
-  redrawMapWithPoly();
-  const cnt=document.getElementById("poly-count");
-  if(cnt)cnt.textContent=window._polyPoints.length+" puntos";
-  const info=document.getElementById("map-poly-info");
-  if(info&&window._polyPoints.length>=3)info.textContent="✓ Polígono con "+window._polyPoints.length+" puntos — puedes seguir agregando o registrar";
-}
+/* addMapPoint obsoleto (usaba píxeles) — eliminado en VF6, initUploadMap usa UP_POINTS con coords reales */
 
 function redrawMapWithPoly(){
   delete DRAWN["up-map"];
@@ -3571,12 +3559,19 @@ function verCertificado(){
       var spanLng=Math.abs(maxLng-minLng),spanLat=Math.abs(maxLat-minLat);
       var maxSpan=Math.max(spanLng,spanLat);
       var zoom=maxSpan>0.05?12:maxSpan>0.02?13:maxSpan>0.008?14:maxSpan>0.003?15:16;
-      // Polígono relleno semitransparente + borde azul
-      var polyEnc=coords.map(function(c){return c[0].toFixed(5)+','+c[1].toFixed(5);}).join('%20');
-      var pathOverlay='path-3+42A5F5-1+1565C0-0.25('+polyEnc+')';
+      // Usar GeoJSON overlay (más confiable que path para polígonos)
+      var geojsonOverlay={
+        type:'Feature',
+        properties:{
+          'stroke':'#42A5F5','stroke-width':3,'stroke-opacity':1,
+          'fill':'#1565C0','fill-opacity':0.35
+        },
+        geometry:{type:'Polygon',coordinates:[coords]}
+      };
+      var geojsonStr=encodeURIComponent(JSON.stringify(geojsonOverlay));
       var mapUrl='https://api.mapbox.com/styles/v1/mapbox/satellite-streets-v12/static/'
-        +pathOverlay+'/'
-        +cLng+','+cLat+','+zoom+',0/640x300@2x?access_token='+MAPBOX_TOKEN;
+        +'geojson('+geojsonStr+')/'
+        +'auto/640x300@2x?access_token='+MAPBOX_TOKEN;
       var lname=(ACTIVE_LAND&&ACTIVE_LAND.name)?ACTIVE_LAND.name:'Lote analizado';
       mapImgHtml='<div style="margin:14px 0;border-radius:10px;overflow:hidden;border:2px solid #1565C0;box-shadow:0 2px 8px rgba(0,0,0,.15)">'
         +'<img src="'+mapUrl+'" style="width:100%;display:block;height:240px;object-fit:cover" onerror="this.parentElement.style.display=\'none\'" alt="Polígono del terreno"/>'
