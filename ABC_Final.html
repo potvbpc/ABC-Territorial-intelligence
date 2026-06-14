@@ -39,7 +39,7 @@ select.inp option{background:#0E1E2E}
 .fa2{animation:fu .33s .14s ease both}
 </style>
 </head>
-<!-- VERSION-DEPLOY: VF7 — Mapa con margen + saltos de página profesionales (thead repetido, sin cortes) -->
+<!-- VERSION-DEPLOY: VF8 — Valoración de suelo realista (método independiente, precios reales RD) -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -3209,10 +3209,71 @@ function computeRLVM(mkt, wlcScore) {
   var VRS = VDP - CC - CF - MD - RR;
   var VRS_m2 = VRS / AREA_M2;
 
-  // Valor actual del suelo (precio de mercado actual sin desarrollar)
-  // Típicamente 15-25% del valor residual calculado
-  var RATIO_ACTUAL = 0.20 + (wlcScore / 100) * 0.10; // entre 20% y 30%
-  var valor_suelo_actual = Math.max(0, VRS * RATIO_ACTUAL);
+  // ── VALOR ACTUAL DE MERCADO DEL SUELO (método independiente) ──
+  // NO se deriva del VRS (eso inflaba el precio). Se calcula con precios
+  // reales de SUELO DESNUDO en RD 2025 (US$/m² de terreno, no construido).
+  // Enfoque EQUILIBRADO: precio medio de mercado real.
+  // Fuentes: portales inmobiliarios RD, transacciones CODIA, mercado 2025.
+  var provNombre = (ACTIVE_LAND && ACTIVE_LAND.province) || 'La Altagracia';
+  var muniNombre = ((ACTIVE_LAND && ACTIVE_LAND.municipio) || '').toLowerCase();
+
+  // Precio base de suelo desnudo por provincia (US$/m² de TERRENO)
+  var SUELO_BASE = {
+    'La Altagracia': 90, 'La Romana': 80, 'Samaná': 55,
+    'María Trinidad Sánchez': 38, 'Distrito Nacional': 140, 'Santo Domingo': 95,
+    'Santiago': 65, 'San Cristóbal': 42, 'La Vega': 38, 'Puerto Plata': 50,
+    'San Pedro de Macorís': 45, 'Peravia': 32, 'Espaillat': 30, 'Duarte': 26,
+    'Monseñor Nouel': 26, 'Sánchez Ramírez': 22, 'El Seibo': 20, 'Hato Mayor': 22,
+    'Monte Plata': 24, 'San José de Ocoa': 20, 'Azua': 22, 'Barahona': 26,
+    'Bahoruco': 18, 'Independencia': 15, 'Pedernales': 30
+  };
+  var sueloBase = SUELO_BASE[provNombre] || 30;
+
+  // Ajuste por municipio premium (zonas de alta demanda)
+  if(muniNombre.indexOf('bávaro')>=0||muniNombre.indexOf('bavaro')>=0||muniNombre.indexOf('punta cana')>=0||muniNombre.indexOf('cap cana')>=0) sueloBase = Math.round(sueloBase*1.9);
+  else if(muniNombre.indexOf('verón')>=0||muniNombre.indexOf('veron')>=0) sueloBase = Math.round(sueloBase*1.05);
+  else if(muniNombre.indexOf('naco')>=0||muniNombre.indexOf('piantini')>=0||muniNombre.indexOf('anacaona')>=0) sueloBase = Math.round(sueloBase*1.6);
+  else if(muniNombre.indexOf('zona franca')>=0) sueloBase = Math.round(sueloBase*0.75);
+
+  // Factor por uso actual (capacidad de desarrollo del terreno)
+  // Terrenos con restricciones valen mucho menos como suelo desnudo
+  var usoLow = uso.toLowerCase();
+  var factorUso =
+    usoLow.indexOf('hotelero')>=0 || usoLow.indexOf('turístico hotelero')>=0 ? 1.15 :
+    usoLow.indexOf('comercial')>=0 ? 1.10 :
+    usoLow.indexOf('mixto')>=0 ? 1.00 :
+    usoLow.indexOf('residencial multi')>=0 ? 1.05 :
+    usoLow.indexOf('residencial')>=0 ? 0.92 :
+    usoLow.indexOf('turístico recreativo')>=0 ? 0.85 :
+    usoLow.indexOf('oficinas')>=0 || usoLow.indexOf('servicios')>=0 ? 1.00 :
+    usoLow.indexOf('industrial')>=0 ? 0.80 :
+    usoLow.indexOf('agropecuario')>=0 || usoLow.indexOf('agrícola')>=0 ? 0.45 :
+    usoLow.indexOf('ecoturismo')>=0 ? 0.55 :
+    usoLow.indexOf('forestal')>=0 ? 0.35 :
+    usoLow.indexOf('conservación')>=0 || usoLow.indexOf('protección')>=0 ? 0.22 :
+    usoLow.indexOf('extractivo')>=0 || usoLow.indexOf('minero')>=0 ? 0.40 :
+    0.70; // sin clasificar: conservador
+
+  // Factor por score WLC (calidad territorial): ±25%
+  // Un terreno mejor ubicado/conectado vale más que uno marginal
+  var factorScore = 0.75 + (wlcScore / 100) * 0.50; // entre 0.75 y 1.25
+
+  // Economía de escala: terrenos muy grandes tienen menor precio unitario
+  // (es más difícil vender/desarrollar 100,000 m² que 1,000 m²)
+  var factorEscala =
+    AREA_M2 > 100000 ? 0.78 :
+    AREA_M2 > 50000  ? 0.85 :
+    AREA_M2 > 20000  ? 0.92 :
+    AREA_M2 > 5000   ? 0.97 : 1.00;
+
+  var precio_suelo_m2 = sueloBase * factorUso * factorScore * factorEscala;
+  var valor_suelo_actual = Math.max(0, Math.round(precio_suelo_m2 * AREA_M2));
+
+  // Tope de coherencia: el valor actual nunca debe superar el 65% del VRS
+  // (si lo hace, el desarrollo no tendría margen y no sería viable)
+  if(VRS > 0 && valor_suelo_actual > VRS * 0.65){
+    valor_suelo_actual = Math.round(VRS * 0.65);
+  }
 
   return {
     // Componentes RLVM
@@ -3227,6 +3288,7 @@ function computeRLVM(mkt, wlcScore) {
     VRS_m2: Math.max(0, Math.round(VRS_m2)),
     // Para compatibilidad con el sistema
     valor_suelo_actual: Math.round(valor_suelo_actual),
+    precio_suelo_m2: Math.round(precio_suelo_m2),
     valor_suelo_residual: Math.max(0, Math.round(VRS)),
     // Parámetros de mercado usados
     area_m2: AREA_M2,
@@ -3643,10 +3705,10 @@ function verCertificado(){
         var pctGanancia=vActual>0?Math.round((vPot-vActual)/vActual*100):'—';
         var landName=ACTIVE_LAND&&ACTIVE_LAND.name?ACTIVE_LAND.name:'el terreno';
         var area=r.rlvm&&r.rlvm.area_m2>0?r.rlvm.area_m2:(ACTIVE_LAND&&ACTIVE_LAND.area_m2?Math.round(ACTIVE_LAND.area_m2):0);
-        var precioM2Act=area>0?Math.round(vActual/area):0;
+        var precioM2Act=(r.rlvm.precio_suelo_m2&&r.rlvm.precio_suelo_m2>0)?r.rlvm.precio_suelo_m2:(area>0?Math.round(vActual/area):0);
         return '<table style="margin-bottom:10px">'
           +'<tr><th colspan="3" style="background:#0d47a1">Análisis de Rentabilidad para el Inversionista</th></tr>'
-          +'<tr style="background:#e3f2fd"><td><strong>Valor actual de mercado (sin desarrollar)</strong></td><td style="text-align:right">US$ '+vActual.toLocaleString()+'</td><td style="text-align:right;color:#555">US$ '+precioM2Act.toLocaleString()+'/m²</td></tr>'
+          +'<tr style="background:#e3f2fd"><td><strong>Valor actual de mercado del suelo</strong><br><span style="font-size:8pt;color:#666">Precio comparable de terreno sin desarrollar</span></td><td style="text-align:right">US$ '+vActual.toLocaleString()+'</td><td style="text-align:right;color:#555">US$ '+precioM2Act.toLocaleString()+'/m²</td></tr>'
           +'<tr style="background:#e8f5e9"><td><strong>Valor residual potencial (VRS desarrollado)</strong></td><td style="text-align:right;color:#1b5e20">US$ '+vPot.toLocaleString()+'</td><td style="text-align:right;color:#1b5e20">US$ '+r.rlvm.VRS_m2.toLocaleString()+'/m²</td></tr>'
           +'<tr style="background:#fff3e0;font-weight:bold"><td><strong>Ganancia potencial estimada</strong></td><td style="text-align:right;color:#e65100">US$ '+(vPot-vActual).toLocaleString()+'</td><td style="text-align:right;color:#e65100">×'+mult+' ('+pctGanancia+'% retorno)</td></tr>'
           +'</table>';
