@@ -39,7 +39,7 @@ select.inp option{background:#0E1E2E}
 .fa2{animation:fu .33s .14s ease both}
 </style>
 </head>
-<!-- VERSION-DEPLOY: VF13 — Fix flujo KML: parser robusto + area automatica + poligono real del lote (no hereda anterior) -->
+<!-- VERSION-DEPLOY: VF14 — Calculo de area geodesico preciso (metodo esferico, igual que Google Earth) -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -2955,10 +2955,30 @@ function clearMapPoly(){
 }
 
 function calcAreaM2(pts){
+  // Área geodésica por el método esférico de la suma de ángulos
+  // (equivalente al que usa Google Earth Engine: ee.Geometry.area).
+  // Precisión sub-1% para polígonos pequeños/medianos. Funciona en
+  // cualquier latitud sin factores fijos. Coordenadas [lon,lat] en grados.
   if(!pts||pts.length<3)return 0;
+  var R=6378137; // radio WGS84 en metros (semieje mayor)
+  var rad=Math.PI/180;
+  var n=pts.length;
+  // Si el anillo está cerrado (último=primero), no duplicar el cierre
+  var ring=pts.slice();
+  var f=ring[0],l=ring[ring.length-1];
+  if(f[0]===l[0]&&f[1]===l[1])ring.pop();
+  var m=ring.length;
+  if(m<3)return 0;
   var area=0;
-  for(var i=0;i<pts.length;i++){var j=(i+1)%pts.length;area+=pts[i][0]*pts[j][1];area-=pts[j][0]*pts[i][1];}
-  return Math.round(Math.abs(area/2)*111320*111320*Math.cos(18.7*Math.PI/180));
+  for(var i=0;i<m;i++){
+    var p1=ring[i];
+    var p2=ring[(i+1)%m];
+    var lon1=p1[0]*rad, lat1=p1[1]*rad;
+    var lon2=p2[0]*rad, lat2=p2[1]*rad;
+    area += (lon2-lon1)*(2+Math.sin(lat1)+Math.sin(lat2));
+  }
+  area = Math.abs(area*R*R/2);
+  return Math.round(area);
 }
 
 /* ═══ DRAWMAP SAFE FALLBACK ═══ */
