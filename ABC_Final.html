@@ -39,7 +39,7 @@ select.inp option{background:#0E1E2E}
 .fa2{animation:fu .33s .14s ease both}
 </style>
 </head>
-<!-- VERSION-DEPLOY: VF8 — Valoración de suelo realista (método independiente, precios reales RD) -->
+<!-- VERSION-DEPLOY: VF9 — Módulo de Propuestas de Proyecto (motor + certificado + reporte Profesional + solicitud prefactibilidad) -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -115,7 +115,7 @@ select.inp option{background:#0E1E2E}
 <script>
 const C={card:"#0E1E2E",c2:"#0A1724",bo:"rgba(255,255,255,.09)",bl:"#1565C0",bll:"#42A5F5",gr:"#2ECC71",grd:"#27AE60",go:"#F2C94C",te:"#17C3B2",pu:"#8B5CF6",or:"#F39C12",tx:"#E8EDF3",tm:"#8FA5BE",td:"#4A6480",re:"#E74C3C"};
 
-let PAGE="public",ROLE=null,APH="idle",ATP=0,ATI=null;
+let PAGE="public",ROLE=null,APH="idle",ATP=0,ATI=null,USER_PLAN="Basico";
 const DRAWN={};
 
 let LAYERS=[
@@ -3591,6 +3591,231 @@ function renderAnalysisBreakdown(result){
     '<div style="margin-top:10px;padding:10px;background:'+C.c2+';border-radius:8px;font-size:10px;color:'+C.tm+'"><strong style="color:'+C.tx+'">Fórmula WLC:</strong> Score = (Σ wᵢ·xᵢ) · Πcⱼ = '+result.score_raw+' × '+result.restriction_factor+' = <strong style="color:#2ECC71">'+result.score+'</strong></div>';
 }
 
+// ════════════════════════════════════════════════════════════════
+// MOTOR DE PROPUESTAS DE PROYECTO
+// Cruza vocación + dimensión + mercado + déficit urbano detectado
+// ════════════════════════════════════════════════════════════════
+function generarPropuestasProyecto(r){
+  if(!r||!r.breakdown)return [];
+  var land=ACTIVE_LAND||{};
+  var area=(land.area_m2&&land.area_m2>0)?land.area_m2:(r.rlvm&&r.rlvm.area_m2?r.rlvm.area_m2:0);
+  var prov=land.province||'';
+  var muni=(land.municipio||'').toLowerCase();
+  var uso=(land.uso_actual||'').toLowerCase();
+  var score=r.score||0;
+
+  // ── 1. Clasificar dimensión ──
+  var escala = area>50000?'gran_escala': area>15000?'grande': area>5000?'media': area>1500?'pequena':'micro';
+  var escalaTxt = {gran_escala:'gran escala (+5 ha)',grande:'gran formato',media:'formato medio',pequena:'formato compacto',micro:'micro-lote'}[escala];
+
+  // ── 2. Detectar vocación dominante por zona y uso ──
+  var esTuristico = (muni.indexOf('bávaro')>=0||muni.indexOf('bavaro')>=0||muni.indexOf('punta cana')>=0||muni.indexOf('verón')>=0||muni.indexOf('veron')>=0||muni.indexOf('cap cana')>=0||prov==='La Altagracia'||prov==='La Romana'||prov==='Samaná');
+  var esUrbano = (prov==='Distrito Nacional'||prov==='Santo Domingo'||prov==='Santiago'||muni.indexOf('naco')>=0||muni.indexOf('piantini')>=0);
+
+  // ── 3. Detectar DÉFICIT URBANO: capas de equipamiento con score bajo ──
+  var deficit=[];
+  r.breakdown.forEach(function(l){
+    var lab=(l.label||'').toLowerCase();
+    var det=((r.metrics_detail&&r.metrics_detail[l.id])?r.metrics_detail[l.id].desc:'').toLowerCase();
+    var esEquip = det.indexOf('educativo')>=0||det.indexOf('salud')>=0||det.indexOf('recreativo')>=0||det.indexOf('cultural')>=0||det.indexOf('seguridad')>=0||lab.indexOf('escuela')>=0||lab.indexOf('hospital')>=0||lab.indexOf('parque')>=0||lab.indexOf('salud')>=0||lab.indexOf('educa')>=0;
+    if(esEquip && l.xi<65){
+      var tipo = (det.indexOf('educativo')>=0||lab.indexOf('escuela')>=0||lab.indexOf('educa')>=0)?'educación':
+                 (det.indexOf('salud')>=0||lab.indexOf('hospital')>=0||lab.indexOf('salud')>=0)?'salud':
+                 (det.indexOf('recreativo')>=0||lab.indexOf('parque')>=0)?'recreación y áreas verdes':
+                 (det.indexOf('cultural')>=0)?'cultura':
+                 (det.indexOf('seguridad')>=0)?'seguridad':'equipamiento';
+      if(deficit.indexOf(tipo)<0)deficit.push(tipo);
+    }
+  });
+
+  // ── 4. Detectar fortalezas de mercado ──
+  var scMercado=0,scAcceso=0;
+  r.breakdown.forEach(function(l){
+    var det=((r.metrics_detail&&r.metrics_detail[l.id])?r.metrics_detail[l.id].desc:'').toLowerCase();
+    if(det.indexOf('mercado')>=0&&l.xi>scMercado)scMercado=l.xi;
+    if(det.indexOf('accesib')>=0&&l.xi>scAcceso)scAcceso=l.xi;
+  });
+
+  // ── 5. GENERAR PROPUESTAS según el cruce ──
+  var props=[];
+
+  // Propuesta primaria según vocación + escala
+  if(esTuristico){
+    if(escala==='gran_escala'||escala==='grande'){
+      props.push({
+        icon:'🏨',titulo:'Complejo residencial-turístico con servicios integrados',
+        prioridad:'Alta',
+        desc:'El terreno de '+escalaTxt+' en zona turística admite un desarrollo de uso mixto que combine unidades residenciales/vacacionales con amenidades. '+(deficit.length>0?'La integración de equipamiento de '+deficit.join(' y ')+' —deficitario en el entorno— añade valor comercial y facilita la aprobación municipal.':'Su escala permite economías de amenidades (piscina, club house, comercio interno).'),
+        encaje:'Aprovecha la vocación turística consolidada y la dimensión disponible.',
+        deficit_resuelto:deficit.length>0?deficit.join(', '):null
+      });
+    } else {
+      props.push({
+        icon:'🏖',titulo:'Villas turísticas o apart-hotel boutique',
+        prioridad:'Alta',
+        desc:'En '+escalaTxt+', un producto turístico de baja densidad (villas, apart-hotel boutique) maximiza el valor por m² en zona de alta demanda vacacional, con menor complejidad de gestión que un gran complejo.',
+        encaje:'Vocación turística + formato adecuado a la dimensión del lote.',
+        deficit_resuelto:null
+      });
+    }
+  } else if(esUrbano){
+    if(escala==='gran_escala'||escala==='grande'){
+      props.push({
+        icon:'🏙',titulo:'Torre o conjunto residencial multifamiliar',
+        prioridad:'Alta',
+        desc:'La ubicación urbana y la dimensión '+escalaTxt+' favorecen un desarrollo residencial en altura o conjunto multifamiliar, aprovechando la densidad permitida y la demanda metropolitana. '+(deficit.length>0?'Incluir '+deficit.join(' y ')+' en planta baja responde al déficit del sector.':''),
+        encaje:'Suelo urbano consolidado con buena conectividad.',
+        deficit_resuelto:deficit.length>0?deficit.join(', '):null
+      });
+    } else {
+      props.push({
+        icon:'🏢',titulo:'Edificio residencial o de uso mixto compacto',
+        prioridad:'Alta',
+        desc:'En suelo urbano de '+escalaTxt+', un edificio residencial con comercio en planta baja optimiza el aprovechamiento y responde a la demanda de vivienda bien ubicada.',
+        encaje:'Ubicación urbana con acceso a servicios.',
+        deficit_resuelto:null
+      });
+    }
+  } else {
+    // Zona rural/secundaria
+    props.push({
+      icon:'🏘',titulo:(escala==='gran_escala'||escala==='grande')?'Urbanización planificada o lotificación':'Vivienda unifamiliar o pequeño conjunto',
+      prioridad:'Media',
+      desc:'La dimensión '+escalaTxt+' en zona '+(prov||'periurbana')+' es apta para '+((escala==='gran_escala'||escala==='grande')?'una urbanización planificada con lotes individuales, modelo de alta absorción en mercados emergentes.':'vivienda unifamiliar o un conjunto pequeño orientado a demanda local.'),
+      encaje:'Aprovecha suelo disponible a costo competitivo.',
+      deficit_resuelto:null
+    });
+  }
+
+  // Propuesta secundaria: SIEMPRE que haya déficit urbano → proyecto de equipamiento
+  if(deficit.length>0){
+    var equipIcon = deficit[0]==='educación'?'🏫':deficit[0]==='salud'?'🏥':deficit[0]==='recreación y áreas verdes'?'🌳':'🏬';
+    props.push({
+      icon:equipIcon,titulo:'Proyecto de equipamiento: '+deficit[0],
+      prioridad:'Media-Alta',
+      desc:'El análisis detectó déficit de '+deficit.join(' y ')+' en el entorno. Un proyecto orientado a suplir esta carencia (centro educativo, clínica, plaza de servicios o parque) tiene demanda real respaldada y fuerte argumento de interés social ante las autoridades municipales.',
+      encaje:'Responde a una necesidad urbana detectada por el motor.',
+      deficit_resuelto:deficit.join(', ')
+    });
+  }
+
+  // Propuesta terciaria: comercial/servicios si el mercado es fuerte
+  if(scMercado>=70 && props.length<3){
+    props.push({
+      icon:'🛒',titulo:'Plaza comercial o centro de servicios de barrio',
+      prioridad:'Media',
+      desc:'El alto puntaje de mercado ('+scMercado+'/100) y la accesibilidad del lote favorecen un desarrollo comercial de proximidad (plaza, locales, servicios) que captura el flujo de la zona.',
+      encaje:'Fortaleza de mercado y accesibilidad detectadas en el análisis.',
+      deficit_resuelto:null
+    });
+  }
+
+  // Completar a 3 si falta, con uso mixto genérico fundamentado
+  if(props.length<3){
+    props.push({
+      icon:'🏗',titulo:'Desarrollo de uso mixto flexible',
+      prioridad:'Media',
+      desc:'Un esquema de uso mixto (residencial + comercial) ofrece flexibilidad para adaptarse a la evolución de la demanda local, diversificando el riesgo de la inversión en '+escalaTxt+'.',
+      encaje:'Estrategia de diversificación para el perfil del lote.',
+      deficit_resuelto:null
+    });
+  }
+
+  return props.slice(0,3);
+}
+
+// ════════════════════════════════════════════════════════════════
+// REPORTE DETALLADO DE PROPUESTAS (Profesional+)
+// ════════════════════════════════════════════════════════════════
+function verReportePropuestas(){
+  var esPro=(USER_PLAN==='Profesional'||USER_PLAN==='Premium'||USER_PLAN==='Enterprise'||ROLE==='admin');
+  if(!esPro){alert('El reporte detallado de propuestas está disponible en el plan Profesional. Actualiza tu plan para acceder.');return;}
+  if(!WLC_RESULT){alert('Primero genera el diagnóstico del terreno.');return;}
+  try{
+  var r=WLC_RESULT;
+  var land=ACTIVE_LAND||{};
+  var props=generarPropuestasProyecto(r);
+  var area=(land.area_m2&&land.area_m2>0)?Math.round(land.area_m2):0;
+  var prov=land.province||'—';
+  var lname=land.name||'Terreno';
+
+  // Programa arquitectónico estimado por propuesta (nivel detallado)
+  function programaEstimado(p,idx){
+    var ratio = p.titulo.toLowerCase().indexOf('hotelero')>=0||p.titulo.toLowerCase().indexOf('turístic')>=0?0.45:
+                p.titulo.toLowerCase().indexOf('comercial')>=0||p.titulo.toLowerCase().indexOf('plaza')>=0?0.55:
+                p.titulo.toLowerCase().indexOf('equipamiento')>=0?0.40:
+                p.titulo.toLowerCase().indexOf('multifamiliar')>=0||p.titulo.toLowerCase().indexOf('torre')>=0?0.62:0.50;
+    var construible=Math.round(area*ratio);
+    var ocupacion=Math.round(area*0.55);
+    var verde=Math.round(area*0.20);
+    var unidades = p.titulo.toLowerCase().indexOf('residencial')>=0||p.titulo.toLowerCase().indexOf('villa')>=0||p.titulo.toLowerCase().indexOf('torre')>=0||p.titulo.toLowerCase().indexOf('multifamiliar')>=0
+      ? Math.max(1,Math.round(construible/95)) : null;
+    return '<table style="margin:8px 0"><thead><tr><th colspan="2">Programa estimado preliminar</th></tr></thead><tbody>'
+      +'<tr><td>Área total del lote</td><td style="text-align:right">'+area.toLocaleString()+' m²</td></tr>'
+      +'<tr><td>Área construible estimada (ratio '+Math.round(ratio*100)+'%)</td><td style="text-align:right">'+construible.toLocaleString()+' m²</td></tr>'
+      +'<tr><td>Huella de ocupación sugerida</td><td style="text-align:right">'+ocupacion.toLocaleString()+' m²</td></tr>'
+      +'<tr><td>Áreas verdes / espacio abierto</td><td style="text-align:right">'+verde.toLocaleString()+' m²</td></tr>'
+      +(unidades?'<tr><td>Unidades habitacionales estimadas</td><td style="text-align:right">~'+unidades+' uds</td></tr>':'')
+      +'</tbody></table>';
+  }
+
+  var content='<div style="text-align:center;margin-bottom:14px">'
+    +'<div style="font-size:18pt;font-weight:900;color:#1565C0">Reporte de Propuestas de Proyecto</div>'
+    +'<div style="font-size:10pt;color:#666">'+lname+' · '+area.toLocaleString()+' m² · '+prov+'</div>'
+    +'<div style="font-size:8pt;color:#999;margin-top:3px">Análisis de mejor uso del suelo · ABC Territorial Intelligence</div>'
+    +'</div>'
+    +'<p style="font-size:10pt;color:#444;line-height:1.6">Este reporte amplía las propuestas de proyecto identificadas para el terreno, cruzando su vocación territorial, dimensión, condiciones de mercado y las necesidades urbanas detectadas en el entorno durante el análisis GIS. Cada propuesta incluye un programa preliminar orientativo.</p>';
+
+  props.forEach(function(p,i){
+    var prioColor=p.prioridad.indexOf('Alta')>=0?'#27AE60':p.prioridad.indexOf('Media-Alta')>=0?'#16A085':'#F39C12';
+    content+='<div class="no-break" style="border:1px solid #ddd;border-left:5px solid '+prioColor+';border-radius:0 10px 10px 0;padding:16px 18px;margin:16px 0;background:#fafbfc">'
+      +'<div style="font-size:13pt;font-weight:800;color:#0d2b4e;margin-bottom:4px">'+p.icon+' Propuesta '+(i+1)+': '+p.titulo+'</div>'
+      +'<div style="font-size:8.5pt;font-weight:700;color:white;background:'+prioColor+';padding:2px 10px;border-radius:10px;display:inline-block;margin-bottom:8px">Prioridad '+p.prioridad+'</div>'
+      +'<p style="font-size:10pt;color:#333;line-height:1.7;margin:8px 0">'+p.desc+'</p>'
+      +'<div style="font-size:9pt;color:#1565C0;margin:6px 0"><strong>Encaje territorial:</strong> '+p.encaje+'</div>'
+      +(p.deficit_resuelto?'<div style="font-size:9pt;color:#27AE60;margin:4px 0"><strong>✓ Responde a déficit urbano detectado:</strong> '+p.deficit_resuelto+' — esto fortalece el argumento de aprobación municipal y la demanda real del proyecto.</div>':'')
+      +programaEstimado(p,i)
+      +'</div>';
+  });
+
+  // Bloque de servicio premium: Estudio de Prefactibilidad
+  content+='<div class="no-break" style="background:linear-gradient(135deg,#0d2b4e,#1565C0);color:white;border-radius:12px;padding:20px 22px;margin:20px 0">'
+    +'<div style="font-size:13pt;font-weight:800;margin-bottom:8px">📐 ¿Listo para llevar tu proyecto al siguiente nivel?</div>'
+    +'<p style="font-size:10pt;line-height:1.6;color:#dbe9f7;margin:8px 0">El <strong>Estudio de Prefactibilidad de Proyecto</strong> de ABC Territorial Intelligence convierte estas propuestas en un documento técnico para tu banco o socios inversionistas, incluyendo: programa arquitectónico definitivo, estimación de inversión y retorno por escenario, análisis de encaje normativo municipal específico, y plan de fases de desarrollo.</p>'
+    +'<button onclick="solicitarPrefactibilidad()" style="margin-top:8px;background:#FFC439;color:#0d2b4e;padding:11px 26px;border-radius:9px;font-size:12px;font-weight:800;border:none;cursor:pointer">Solicitar Estudio de Prefactibilidad</button>'
+    +'<div style="font-size:8pt;color:#aac4e3;margin-top:8px">Servicio profesional adicional · Un especialista te contactará para evaluar tu proyecto y presentarte una propuesta a medida.</div>'
+    +'</div>';
+
+  content+='<div class="disclaimer">Las propuestas y programas presentados son orientativos y de carácter preliminar, generados a partir del análisis territorial automatizado. No constituyen un proyecto arquitectónico, estudio de factibilidad definitivo ni garantía de aprobación. Para el desarrollo formal se requieren estudios técnicos especializados. ABC Territorial Intelligence.</div>';
+
+  var css='*{box-sizing:border-box}body{font-family:Arial,sans-serif;font-size:10.5pt;color:#111;padding:1.5cm;margin:0;background:white;line-height:1.5}h2{color:#1565C0}table{width:100%;border-collapse:collapse;margin:8px 0;font-size:9pt}thead{display:table-header-group}th{background:#1565C0;color:white;padding:6px 8px;text-align:left}td{padding:5px 8px;border:1px solid #ddd}tr:nth-child(even) td{background:#f5f7fa}.no-break{page-break-inside:avoid}.disclaimer{font-size:8pt;color:#666;border-top:1px solid #ddd;padding-top:8px;margin-top:14px}@media print{@page{margin:1.5cm;size:A4}body{-webkit-print-color-adjust:exact;print-color-adjust:exact;padding:0}}';
+
+  showModal(content,css);
+  }catch(e){console.error('verReportePropuestas:',e);alert('Error generando reporte: '+e.message);}
+}
+
+// Solicitar Estudio de Prefactibilidad (servicio premium bajo pago)
+async function solicitarPrefactibilidad(){
+  if(!CURRENT_USER){alert('Inicia sesión para solicitar el estudio.');return;}
+  var land=ACTIVE_LAND||{};
+  if(!confirm('¿Deseas solicitar un Estudio de Prefactibilidad para «'+(land.name||'este terreno')+'»?\n\nUn especialista de ABC te contactará para evaluar tu proyecto y presentarte una propuesta de servicio a medida.'))return;
+  try{
+    var payload={
+      nombre:(CURRENT_USER.user_metadata&&CURRENT_USER.user_metadata.full_name)||CURRENT_USER.email,
+      email:CURRENT_USER.email,
+      mensaje:'SOLICITUD DE ESTUDIO DE PREFACTIBILIDAD — Terreno: '+(land.name||'—')+' | Área: '+(land.area_m2||'—')+' m² | Provincia: '+(land.province||'—')+' | Score WLC: '+(WLC_RESULT?WLC_RESULT.score:'—'),
+      monto_disponible:'Servicio de prefactibilidad',
+      status:'pending'
+    };
+    var ins=await SUPA.from('investment_requests').insert(payload);
+    if(ins.error){throw ins.error;}
+    alert('✓ Solicitud registrada correctamente.\n\nUn especialista de ABC Territorial Intelligence te contactará pronto para evaluar tu proyecto.');
+  }catch(e){
+    console.error('solicitarPrefactibilidad:',e);
+    alert('No se pudo registrar la solicitud: '+(e.message||'intenta de nuevo'));
+  }
+}
+
 function verCertificado(){
   if(!WLC_RESULT){alert('Primero genera el diagnóstico.');return;}
   try{
@@ -3764,6 +3989,38 @@ function verCertificado(){
           +'<p style="font-size:10pt;color:#333;line-height:1.7">'+recomendacion+'</p>'
         +'</div>'
         +'</div>';
+    })()
+    // ── SECCIÓN: Propuestas de Proyecto Recomendadas (nivel 2A, todos los planes) ──
+    +(function(){
+      var props=generarPropuestasProyecto(r);
+      if(!props||props.length===0)return '';
+      var html='<h2 style="page-break-before:auto">Propuestas de Proyecto Recomendadas</h2>'
+        +'<p style="font-size:9.5pt;color:#555;margin-bottom:10px">Con base en la vocación del suelo, la dimensión del lote, las condiciones de mercado y las necesidades urbanas detectadas en el entorno, el motor de ABC Territorial Intelligence sugiere los siguientes usos de mayor potencial:</p>';
+      props.forEach(function(p,i){
+        var prioColor=p.prioridad.indexOf('Alta')>=0?'#27AE60':p.prioridad.indexOf('Media-Alta')>=0?'#16A085':'#F39C12';
+        html+='<div class="no-break" style="border:1px solid #ddd;border-left:4px solid '+prioColor+';border-radius:0 8px 8px 0;padding:12px 16px;margin:10px 0;background:#fafbfc">'
+          +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">'
+          +'<div style="font-size:11pt;font-weight:700;color:#0d2b4e">'+p.icon+' '+(i+1)+'. '+p.titulo+'</div>'
+          +'<div style="font-size:8pt;font-weight:700;color:white;background:'+prioColor+';padding:2px 8px;border-radius:10px">Prioridad '+p.prioridad+'</div>'
+          +'</div>'
+          +'<p style="font-size:9.5pt;color:#333;line-height:1.6;margin:6px 0">'+p.desc+'</p>'
+          +'<div style="font-size:8.5pt;color:#1565C0;margin-top:4px"><strong>Encaje territorial:</strong> '+p.encaje+'</div>'
+          +(p.deficit_resuelto?'<div style="font-size:8.5pt;color:#27AE60;margin-top:2px"><strong>✓ Responde a déficit urbano:</strong> '+p.deficit_resuelto+'</div>':'')
+          +'</div>';
+      });
+      // Acceso al reporte detallado según plan
+      var esPro=(USER_PLAN==='Profesional'||USER_PLAN==='Premium'||USER_PLAN==='Enterprise'||ROLE==='admin');
+      if(esPro){
+        html+='<div class="no-break" style="background:#eef4fc;border:1px dashed #1565C0;border-radius:8px;padding:12px 16px;margin:12px 0;text-align:center">'
+          +'<div style="font-size:9.5pt;color:#1565C0;font-weight:600">📐 Como suscriptor Profesional, tienes acceso al reporte detallado de estas propuestas.</div>'
+          +'<button onclick="verReportePropuestas()" style="margin-top:8px;background:linear-gradient(135deg,#1565C0,#0D47A1);color:white;padding:9px 22px;border-radius:8px;font-size:11px;font-weight:700;border:none;cursor:pointer">Ver reporte detallado de propuestas →</button>'
+          +'</div>';
+      } else {
+        html+='<div class="no-break" style="background:#f7f7f7;border:1px dashed #bbb;border-radius:8px;padding:12px 16px;margin:12px 0;text-align:center">'
+          +'<div style="font-size:9pt;color:#888">📐 El <strong>reporte detallado de propuestas</strong> —con programa arquitectónico, escala estimada y fundamento ampliado— está disponible en el plan <strong>Profesional</strong>.</div>'
+          +'</div>';
+      }
+      return html;
     })()
     +'<div class="disclaimer">Generado mediante análisis multicriterio WLC con capas GIS oficiales RD (MOPC, ONE, MIMARENA, IGN). ABC Territorial Intelligence. Documento técnico de referencia.<br><br><strong>⚠ Nota legal:</strong> Esta proyección es referencial. El valor potencial real requiere una tasación formal según metodología CODIA/ITADO y estudio de mercado específico. Este documento no sustituye peritaje legal ni tasación oficial.</div>';
   showModal(content,css);
@@ -3953,6 +4210,11 @@ async function checkSession(){
     ROLE=(meta&&meta.role)||'propietario';
     var adminEmails=['abc.projectseirl@gmail.com','admin@abcprojectsrd.com'];
     if(adminEmails.indexOf(CURRENT_USER.email)>=0)ROLE='admin';
+    // Cargar plan del perfil para control de acceso a funciones premium
+    try{
+      var pr=await SUPA.from('profiles').select('plan,role').eq('id',CURRENT_USER.id).single();
+      if(pr.data){USER_PLAN=pr.data.plan||'Basico';if(pr.data.role)ROLE=pr.data.role;}
+    }catch(e){console.warn('plan load:',e);}
     // 1. Cargar terrenos PRIMERO (await), luego renderizar con datos completos
     await loadUserLands();
     // 2. Determinar y fijar la vista destino
