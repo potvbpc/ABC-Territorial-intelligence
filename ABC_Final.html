@@ -39,7 +39,7 @@ select.inp option{background:#0E1E2E}
 .fa2{animation:fu .33s .14s ease both}
 </style>
 </head>
-<!-- VERSION-DEPLOY: VF11 — Motor de propuestas por scoring multifactor (cada lote da combinacion distinta) -->
+<!-- VERSION-DEPLOY: VF12 — Propuestas por 5 sistemas urbanos (equipamiento, ambiente, energia, habitacional, productivo) con diversidad garantizada -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -3604,188 +3604,189 @@ function generarPropuestasProyecto(r){
   var muni=(land.municipio||'').toLowerCase();
   var uso=(land.uso_actual||'').toLowerCase();
   var score=r.score||0;
-  var vrsM2=(r.rlvm&&r.rlvm.VRS_m2)?r.rlvm.VRS_m2:0;
-  var precioSuelo=(r.rlvm&&r.rlvm.precio_suelo_m2)?r.rlvm.precio_suelo_m2:0;
+  var precioSuelo=(r.rlvm&&r.rlvm.precio_suelo_m2)?r.rlvm.precio_suelo_m2:50;
+  var hectareas=area/10000;
 
-  // ── Extraer scores por dimensión desde el breakdown real del lote ──
+  // ── Scores por dimensión desde el breakdown REAL del lote ──
   function scoreDe(claves){
-    var best=0;
+    var best=0,found=false;
     r.breakdown.forEach(function(l){
       var t=((l.label||'')+' '+((r.metrics_detail&&r.metrics_detail[l.id])?r.metrics_detail[l.id].desc:'')).toLowerCase();
-      for(var i=0;i<claves.length;i++){if(t.indexOf(claves[i])>=0&&l.xi>best)best=l.xi;}
+      for(var i=0;i<claves.length;i++){if(t.indexOf(claves[i])>=0){found=true;if(l.xi>best)best=l.xi;}}
     });
-    return best;
+    return found?best:-1; // -1 = capa no presente
   }
   var sMercado=scoreDe(['mercado','comercial','valor referencial']);
   var sAcceso=scoreDe(['accesib','vía','vias','movilidad','transporte']);
   var sTurismo=scoreDe(['turismo','hotel','playa','atractivo']);
-  var sEducacion=scoreDe(['educativo','escuela','universidad','liceo']);
+  var sEducacion=scoreDe(['educativo','escuela','universidad','liceo','educación']);
   var sSalud=scoreDe(['salud','hospital','clínica','clinica']);
-  var sRecreacion=scoreDe(['recreativo','parque','plaza','deportivo','verde']);
+  var sRecreacion=scoreDe(['recreativo','parque','plaza','deportivo','verde','recreación']);
   var sSeguridad=scoreDe(['seguridad','policía','policia','bombero']);
+  var sCultura=scoreDe(['cultural','biblioteca','museo']);
   var sInfra=scoreDe(['infraestructura','servicios básicos','eléctrica','agua','acueducto']);
   var sRiesgo=scoreDe(['riesgo','inundable','pendiente','falla']);
+  function v(s){return s<0?60:s;} // si no hay capa, neutral
 
-  // ── Clasificar dimensión con texto descriptivo ──
   var escala = area>50000?'gran_escala': area>15000?'grande': area>5000?'media': area>1500?'pequena':'micro';
   var escalaTxt = {gran_escala:'gran escala (más de 5 hectáreas)',grande:'gran formato (1.5 a 5 ha)',media:'formato medio (5,000 a 15,000 m²)',pequena:'formato compacto (1,500 a 5,000 m²)',micro:'micro-lote (menos de 1,500 m²)'}[escala];
-  var hectareas=(area/10000);
 
-  // ── Vocación territorial ──
-  var esTuristico = (muni.indexOf('bávaro')>=0||muni.indexOf('bavaro')>=0||muni.indexOf('punta cana')>=0||muni.indexOf('verón')>=0||muni.indexOf('veron')>=0||muni.indexOf('cap cana')>=0||prov==='La Altagracia'||prov==='La Romana'||prov==='Samaná'||sTurismo>=70);
+  var esTuristico = (muni.indexOf('bávaro')>=0||muni.indexOf('bavaro')>=0||muni.indexOf('punta cana')>=0||muni.indexOf('verón')>=0||muni.indexOf('veron')>=0||muni.indexOf('cap cana')>=0||prov==='La Altagracia'||prov==='La Romana'||prov==='Samaná'||v(sTurismo)>=70);
   var esUrbano = (prov==='Distrito Nacional'||prov==='Santo Domingo'||prov==='Santiago'||muni.indexOf('naco')>=0||muni.indexOf('piantini')>=0);
+  var poco_edificable = (uso.indexOf('forestal')>=0||uso.indexOf('agropecuario')>=0||uso.indexOf('agrícola')>=0||uso.indexOf('conservación')>=0||uso.indexOf('protección')>=0);
+  var ciudadTxt = muni?(land.municipio):(prov||'la zona');
 
-  // ── Detectar déficit urbano específico (por capa real con score bajo) ──
-  var deficits=[];
-  if(sEducacion>0&&sEducacion<62)deficits.push({tipo:'educación',score:sEducacion,icon:'🏫'});
-  if(sSalud>0&&sSalud<62)deficits.push({tipo:'salud',score:sSalud,icon:'🏥'});
-  if(sRecreacion>0&&sRecreacion<62)deficits.push({tipo:'recreación y áreas verdes',score:sRecreacion,icon:'🌳'});
-  if(sSeguridad>0&&sSeguridad<58)deficits.push({tipo:'seguridad ciudadana',score:sSeguridad,icon:'🚓'});
-  deficits.sort(function(a,b){return a.score-b.score;}); // peor primero
+  // Déficit = qué tan por debajo de 65 está cada equipamiento (mayor = más urgente)
+  function deficitDe(s){return s<0?0:Math.max(0,65-s);}
+  var dEdu=deficitDe(sEducacion), dSal=deficitDe(sSalud), dRec=deficitDe(sRecreacion),
+      dSeg=deficitDe(sSeguridad), dCul=deficitDe(sCultura), dInf=deficitDe(sInfra);
 
   // ════════════════════════════════════════════════════════════
-  // CATÁLOGO DE PROYECTOS con función de PUNTUACIÓN por lote.
-  // Cada candidato calcula su "encaje" (0-100) según los datos
-  // REALES del lote. Se eligen los 3 de mayor puntaje. Esto hace
-  // que lotes distintos produzcan combinaciones distintas.
+  // CATÁLOGO POR 5 SISTEMAS URBANOS. Cada candidato puntúa su
+  // ENCAJE con los datos reales del lote (déficit + viabilidad).
   // ════════════════════════════════════════════════════════════
-  var candidatos=[];
-  function add(c){candidatos.push(c);}
+  var C=[];
+  function add(o){C.push(o);}
 
-  // 1. Complejo turístico de gran escala
-  add({
-    id:'complejo_turistico', icon:'🏨',
-    titulo:'Complejo residencial-turístico con servicios integrados',
-    fit: (esTuristico?40:0) + (area>15000?30:area>8000?15:0) + Math.round(sTurismo*0.2) + Math.round(sMercado*0.1),
-    desc:'El terreno de '+escalaTxt+' en zona de vocación turística (puntaje turismo '+sTurismo+'/100) admite un complejo de uso mixto: unidades residenciales o vacacionales con amenidades compartidas. La escala permite club house, piscinas y comercio interno que elevan el valor por unidad.',
-    encaje:'Vocación turística ('+sTurismo+'/100) y dimensión de '+hectareas.toFixed(1)+' ha disponibles.',
-    programa_ratio:0.45
-  });
+  // ───────── SISTEMA 1: EQUIPAMIENTO SOCIAL ─────────
+  add({id:'educacion',sistema:'Equipamiento social',icon:'🏫',
+    titulo:'Centro educativo (colegio, liceo o instituto técnico)',
+    fit: dEdu*1.6 + (area>=2000?15:5) + (v(sAcceso)>=60?10:0) + (esUrbano||esTuristico?8:0),
+    desc:'El entorno de '+ciudadTxt+' presenta déficit educativo (cobertura '+v(sEducacion)+'/100). Un centro educativo responde a una necesidad poblacional real y sostenida, con modelo de ingresos estable (matrícula) y fuerte respaldo municipal. La accesibilidad del lote ('+v(sAcceso)+'/100) facilita la captación de estudiantes.',
+    encaje:'Déficit educativo detectado ('+v(sEducacion)+'/100) + accesibilidad adecuada.',
+    deficit_resuelto:'educación', ratio:0.45});
 
-  // 2. Villas / apart-hotel boutique
-  add({
-    id:'villas_boutique', icon:'🏖',
-    titulo:'Villas turísticas o apart-hotel boutique',
-    fit: (esTuristico?38:0) + (area<=15000&&area>=2000?28:8) + Math.round(sTurismo*0.18) + Math.round(sAcceso*0.08),
-    desc:'En '+escalaTxt+', un producto turístico de baja densidad (villas independientes o apart-hotel boutique) maximiza el valor por m² con menor complejidad de gestión y absorción más rápida que un gran complejo. Ideal para inversión turística de entrada.',
-    encaje:'Formato adecuado a la dimensión y demanda vacacional de la zona.',
-    programa_ratio:0.38
-  });
+  add({id:'salud',sistema:'Equipamiento social',icon:'🏥',
+    titulo:'Centro de salud, clínica u hospital ambulatorio',
+    fit: dSal*1.6 + (area>=1500?15:5) + (v(sAcceso)>=60?12:0) + (esUrbano?10:0),
+    desc:'La cobertura de salud en '+ciudadTxt+' es deficitaria ('+v(sSalud)+'/100). Una clínica ambulatoria o centro médico atiende demanda creciente, con alta rentabilidad por servicios y posibilidad de convenios con ARS y el sistema público. Su instalación mejora directamente la calidad de vida del sector.',
+    encaje:'Déficit de salud detectado ('+v(sSalud)+'/100) en el entorno.',
+    deficit_resuelto:'salud', ratio:0.5});
 
-  // 3. Torre / conjunto residencial multifamiliar
-  add({
-    id:'multifamiliar', icon:'🏙',
+  add({id:'bomberos',sistema:'Equipamiento social',icon:'🚒',
+    titulo:'Estación de bomberos o módulo de emergencias',
+    fit: dSeg*1.3 + (area>=2000&&area<=12000?14:2) + (v(sAcceso)>=65?15:0),
+    desc:'El entorno presenta baja cobertura de seguridad y emergencias ('+v(sSeguridad)+'/100). Una estación de bomberos o módulo de emergencias —desarrollable vía alianza público-privada o cesión con incentivos— eleva la seguridad del sector y la valorización de los inmuebles circundantes.',
+    encaje:'Déficit de seguridad/emergencias ('+v(sSeguridad)+'/100) + buena conectividad vial.',
+    deficit_resuelto:'seguridad', ratio:0.35});
+
+  add({id:'comunitario',sistema:'Equipamiento social',icon:'🏛',
+    titulo:'Centro comunitario, cultural o biblioteca',
+    fit: Math.max(dCul,dRec*0.6)*1.2 + (area>=1000&&area<=8000?12:2) + (esUrbano?10:0),
+    desc:'El sector carece de equipamiento cultural y comunitario ('+v(sCultura)+'/100). Un centro multiuso —biblioteca, salón cultural, espacios de formación— genera cohesión social y puede operar bajo modelo mixto (alquiler de espacios, programas formativos) con apoyo de fundaciones y gobierno local.',
+    encaje:'Carencia de equipamiento cultural-comunitario en la zona.',
+    deficit_resuelto:'cultura', ratio:0.4});
+
+  // ───────── SISTEMA 2: ESPACIO PÚBLICO Y AMBIENTE ─────────
+  add({id:'parque_urbano',sistema:'Espacio público y ambiente',icon:'🌳',
+    titulo:'Parque urbano o complejo deportivo-recreativo',
+    fit: dRec*1.7 + (poco_edificable?20:0) + (area>=3000?15:5) + (v(sRiesgo)>0&&v(sRiesgo)<55?12:0),
+    desc:'El déficit de áreas verdes y recreación en '+ciudadTxt+' ('+v(sRecreacion)+'/100) abre la oportunidad de un parque urbano o complejo deportivo. '+(poco_edificable?'El uso actual del suelo ('+uso+') es plenamente compatible con este destino, evitando los costos y restricciones de un desarrollo edificable. ':'')+'Modelo sostenible vía concesión de servicios (canchas, cafetería, eventos) y alto impacto en la valorización del entorno.',
+    encaje:'Déficit de espacio público ('+v(sRecreacion)+'/100)'+(poco_edificable?' + uso de suelo compatible':'')+'.',
+    deficit_resuelto:'recreación y áreas verdes', ratio:0.15});
+
+  add({id:'eco_parque',sistema:'Espacio público y ambiente',icon:'🌿',
+    titulo:'Parque ecológico o reforestación con uso recreativo',
+    fit: (poco_edificable?35:0) + (v(sRiesgo)>0&&v(sRiesgo)<55?22:0) + dRec*0.8 + (area>10000?15:0),
+    desc:'Dado el perfil ambiental del lote (uso '+uso+', riesgo '+v(sRiesgo)+'/100), un parque ecológico con senderos, mirador y reforestación protege el suelo de restricciones mientras genera valor: ecoturismo de proximidad, créditos de carbono y mejora paisajística que revaloriza desarrollos vecinos.',
+    encaje:'Perfil ambiental del lote orientado a conservación productiva.',
+    deficit_resuelto:'recreación y áreas verdes', ratio:0.1});
+
+  // ───────── SISTEMA 3: INFRAESTRUCTURA Y ENERGÍA ─────────
+  add({id:'fotovoltaico',sistema:'Infraestructura y energía',icon:'☀️',
+    titulo:'Parque solar fotovoltaico',
+    fit: (area>20000?40:area>10000?20:0) + (poco_edificable?25:0) + (precioSuelo<60?20:precioSuelo<90?8:0) + (prov==='Pedernales'||prov==='Azua'||prov==='Barahona'||prov==='Independencia'||prov==='Montecristi'?15:5),
+    desc:'La dimensión del lote ('+hectareas.toFixed(1)+' ha)'+(poco_edificable?', su uso poco edificable ('+uso+')':'')+' y el costo competitivo del suelo (US$'+precioSuelo+'/m²) lo hacen apto para un parque solar fotovoltaico. La RD impulsa la energía renovable con incentivos fiscales (Ley 57-07): exención de impuestos a equipos e ingresos por venta de energía a la red, con retorno estable a largo plazo.',
+    encaje:'Superficie amplia + suelo de bajo costo + marco de incentivos a renovables.',
+    ratio:0.6, energia:true});
+
+  add({id:'eolico',sistema:'Infraestructura y energía',icon:'💨',
+    titulo:'Parque eólico o aerogeneradores',
+    fit: (area>40000?40:area>20000?18:0) + (poco_edificable?22:0) + (prov==='Pedernales'||prov==='Barahona'||prov==='Montecristi'||prov==='Puerto Plata'||muni.indexOf('costa')>=0?22:0) + (precioSuelo<55?15:0),
+    desc:'La gran extensión del lote ('+hectareas.toFixed(1)+' ha)'+((prov==='Pedernales'||prov==='Barahona'||prov==='Montecristi')?' en una provincia de alto potencial eólico':'')+' permite evaluar un parque eólico. Requiere estudio de viento específico, pero la RD tiene metas agresivas de generación renovable y los incentivos de la Ley 57-07 aplican igual. Compatible con uso agropecuario simultáneo del suelo.',
+    encaje:'Extensión apta + potencial de viento de la zona + incentivos renovables.',
+    ratio:0.55, energia:true});
+
+  add({id:'acueducto',sistema:'Infraestructura y energía',icon:'💧',
+    titulo:'Planta de tratamiento o infraestructura de agua',
+    fit: dInf*1.4 + (area>5000?15:0) + (poco_edificable?10:0),
+    desc:'El déficit de infraestructura de servicios ('+v(sInfra)+'/100) en el sector señala oportunidad para una planta de tratamiento de agua o saneamiento, desarrollable vía alianza con INAPA/CORAA o el ayuntamiento, con modelo de ingreso por servicio y fuerte impacto en la habitabilidad de la zona.',
+    encaje:'Déficit de infraestructura de servicios ('+v(sInfra)+'/100).',
+    deficit_resuelto:'infraestructura', ratio:0.3});
+
+  // ───────── SISTEMA 4: HABITACIONAL ─────────
+  add({id:'vivienda_social',sistema:'Habitacional',icon:'🏘',
+    titulo:'Vivienda económica o de interés social',
+    fit: (area>8000?28:area>3000?15:0) + (precioSuelo<70?22:0) + (!esTuristico?15:0) + (v(sInfra)>=55?10:0),
+    desc:'El costo accesible del suelo (US$'+precioSuelo+'/m²) y la dimensión permiten un proyecto de vivienda económica o de interés social, segmento con enorme déficit habitacional en RD y acceso a financiamiento estatal (Fideicomiso, bono vivienda). Alta absorción y rotación de capital.',
+    encaje:'Suelo accesible + déficit habitacional nacional + financiamiento disponible.',
+    ratio:0.55});
+
+  add({id:'multifamiliar',sistema:'Habitacional',icon:'🏙',
     titulo:'Torre o conjunto residencial multifamiliar',
-    fit: (esUrbano?40:0) + (area>10000?25:area>3000?15:5) + Math.round(sMercado*0.15) + Math.round(sAcceso*0.12) + (uso.indexOf('multi')>=0?10:0),
-    desc:'La ubicación '+(esUrbano?'urbana consolidada':'con acceso a servicios')+' y el puntaje de mercado ('+sMercado+'/100) favorecen vivienda en altura o conjunto multifamiliar, aprovechando densidad permitida y demanda metropolitana.',
-    encaje:'Suelo '+(esUrbano?'urbano':'periurbano')+' con accesibilidad '+sAcceso+'/100.',
-    programa_ratio:0.62
-  });
+    fit: (esUrbano?35:0) + (area>8000?22:area>3000?14:5) + Math.round(v(sMercado)*0.15) + Math.round(v(sAcceso)*0.1) + (uso.indexOf('multi')>=0?10:0),
+    desc:'La ubicación '+(esUrbano?'urbana':'con servicios')+' y el puntaje de mercado ('+v(sMercado)+'/100) favorecen vivienda en altura para clase media, aprovechando densidad y demanda metropolitana. '+(dEdu>5||dSal>5?'Incluir locales para servicios deficitarios (educación/salud) en planta baja agrega valor.':''),
+    encaje:'Suelo '+(esUrbano?'urbano':'periurbano')+' con mercado '+v(sMercado)+'/100.',
+    ratio:0.62});
 
-  // 4. Edificio residencial / mixto compacto
-  add({
-    id:'mixto_compacto', icon:'🏢',
-    titulo:'Edificio residencial o de uso mixto compacto',
-    fit: (esUrbano?35:10) + (area<=8000&&area>=800?28:8) + Math.round(sMercado*0.12) + Math.round(sInfra*0.1),
-    desc:'En '+escalaTxt+', un edificio residencial con comercio en planta baja optimiza el aprovechamiento del suelo y responde a la demanda de vivienda bien ubicada con servicios a pie.',
-    encaje:'Aprovechamiento eficiente para lotes compactos con buena infraestructura ('+sInfra+'/100).',
-    programa_ratio:0.55
-  });
+  add({id:'urbanizacion',sistema:'Habitacional',icon:'🏡',
+    titulo:'Urbanización planificada con equipamiento integrado',
+    fit: (!esTuristico&&!esUrbano?30:8) + (area>20000?32:area>10000?18:0) + Math.round(v(sInfra)*0.1) + (precioSuelo<70?12:0),
+    desc:'La dimensión de '+hectareas.toFixed(1)+' ha permite una urbanización planificada que integre vivienda con su propio equipamiento (áreas verdes, comercio, quizá escuela), creando comunidad y resolviendo de paso los déficits de '+ciudadTxt+'. Modelo de desarrollo por fases con absorción sostenida.',
+    encaje:'Suelo extenso para desarrollo habitacional integral por fases.',
+    ratio:0.5});
 
-  // 5. Plaza comercial / centro de servicios
-  add({
-    id:'comercial', icon:'🛒',
+  // ───────── SISTEMA 5: PRODUCTIVO Y TURÍSTICO ─────────
+  add({id:'complejo_turistico',sistema:'Productivo y turístico',icon:'🏨',
+    titulo:'Complejo residencial-turístico con servicios integrados',
+    fit: (esTuristico?32:0) + (area>15000?25:area>8000?14:0) + Math.round(v(sTurismo)*0.18) + Math.round(v(sMercado)*0.08),
+    desc:'El terreno de '+escalaTxt+' en zona turística (turismo '+v(sTurismo)+'/100) admite un complejo de uso mixto con amenidades. '+(dEdu>5||dSal>5||dRec>5?'Integrar servicios deficitarios del entorno (escuela, clínica o áreas recreativas abiertas a la comunidad) diferencia el proyecto y facilita su aprobación.':'La escala permite club house, piscinas y comercio interno.'),
+    encaje:'Vocación turística ('+v(sTurismo)+'/100) y dimensión de '+hectareas.toFixed(1)+' ha.',
+    ratio:0.45});
+
+  add({id:'villas',sistema:'Productivo y turístico',icon:'🏖',
+    titulo:'Villas turísticas o apart-hotel boutique',
+    fit: (esTuristico?30:0) + (area<=15000&&area>=2000?26:6) + Math.round(v(sTurismo)*0.16) + Math.round(v(sAcceso)*0.06),
+    desc:'En '+escalaTxt+', un producto turístico de baja densidad (villas o apart-hotel boutique) maximiza el valor por m² con menor complejidad y absorción rápida. Ideal para inversión turística de entrada en zona consolidada.',
+    encaje:'Formato adecuado a la dimensión y demanda vacacional.',
+    ratio:0.38});
+
+  add({id:'comercial',sistema:'Productivo y turístico',icon:'🛒',
     titulo:'Plaza comercial o centro de servicios de proximidad',
-    fit: Math.round(sMercado*0.45) + Math.round(sAcceso*0.25) + (area>=2000&&area<=20000?15:0),
-    desc:'El puntaje de mercado ('+sMercado+'/100) y la accesibilidad ('+sAcceso+'/100) del lote favorecen un desarrollo comercial de proximidad —plaza, locales, servicios— que captura el flujo de la zona y genera renta estable.',
+    fit: Math.round(v(sMercado)*0.4) + Math.round(v(sAcceso)*0.22) + (area>=2000&&area<=20000?15:0),
+    desc:'El puntaje de mercado ('+v(sMercado)+'/100) y la accesibilidad ('+v(sAcceso)+'/100) favorecen un desarrollo comercial de proximidad que capture el flujo de la zona y genere renta estable, atendiendo a la vez la demanda de servicios del sector.',
     encaje:'Fortaleza comercial y vial detectada en el análisis.',
-    programa_ratio:0.55
-  });
+    ratio:0.55});
 
-  // 6. Urbanización planificada / lotificación
-  add({
-    id:'urbanizacion', icon:'🏘',
-    titulo:'Urbanización planificada o lotificación',
-    fit: (!esTuristico&&!esUrbano?35:5) + (area>20000?35:area>10000?20:0) + Math.round(sInfra*0.12) + (precioSuelo>0&&precioSuelo<70?15:0),
-    desc:'La dimensión de '+hectareas.toFixed(1)+' ha en '+(prov||'zona periurbana')+' es apta para una urbanización con lotes individuales o vivienda en serie, modelo de alta absorción en mercados emergentes con suelo a costo competitivo (US$'+precioSuelo+'/m²).',
-    encaje:'Suelo extenso a costo accesible para desarrollo por fases.',
-    programa_ratio:0.50
-  });
+  add({id:'logistico',sistema:'Productivo y turístico',icon:'🏭',
+    titulo:'Centro logístico o naves industriales ligeras',
+    fit: (!esTuristico?18:0) + Math.round(v(sAcceso)*0.28) + (area>8000?20:0) + (uso.indexOf('industrial')>=0?20:0),
+    desc:'La accesibilidad vial ('+v(sAcceso)+'/100) y la dimensión permiten un centro logístico o naves ligeras, aprovechando la cercanía a vías principales y la creciente demanda de almacenamiento y distribución en el país.',
+    encaje:'Conectividad vial y superficie adecuada para logística.',
+    ratio:0.6});
 
-  // 7. Vivienda unifamiliar / conjunto pequeño
-  add({
-    id:'unifamiliar', icon:'🏡',
-    titulo:'Vivienda unifamiliar o conjunto residencial pequeño',
-    fit: (area<5000?35:5) + (uso.indexOf('residencial')>=0?20:0) + Math.round(sInfra*0.1) + (!esUrbano?12:0),
-    desc:'En '+escalaTxt+', el desarrollo de vivienda unifamiliar o un pequeño conjunto cerrado responde a demanda local de vivienda de calidad, con inversión moderada y gestión sencilla.',
-    encaje:'Escala y uso residencial alineados con demanda habitacional local.',
-    programa_ratio:0.50
+  // ── Ordenar por encaje, asegurar DIVERSIDAD de sistemas ──
+  C.sort(function(a,b){return b.fit-a.fit;});
+  var top=[], sistemasUsados={};
+  // Primera pasada: el mejor de cada sistema distinto
+  C.forEach(function(c){
+    if(top.length>=3||c.fit<=0)return;
+    if(!sistemasUsados[c.sistema]){top.push(c);sistemasUsados[c.sistema]=true;}
   });
-
-  // 8. Proyecto de equipamiento (por déficit detectado) — dinámico
-  if(deficits.length>0){
-    var d=deficits[0];
-    var nombreProy = d.tipo==='educación'?'centro educativo (colegio o instituto técnico)':
-                     d.tipo==='salud'?'centro de salud o clínica ambulatoria':
-                     d.tipo==='recreación y áreas verdes'?'parque urbano o complejo deportivo':
-                     'destacamento o módulo de seguridad con servicios';
-    add({
-      id:'equipamiento_'+d.tipo, icon:d.icon,
-      titulo:'Proyecto de equipamiento: '+d.tipo,
-      fit: 50 + Math.round((62-d.score)*1.2) + (area>=1500?10:0),
-      desc:'El análisis detectó un déficit notable de '+d.tipo+' en el entorno (puntaje '+d.score+'/100, por debajo del umbral adecuado). Un '+nombreProy+' tiene demanda real respaldada por la carencia del territorio y un fuerte argumento de interés social que facilita la aprobación municipal y posibles alianzas público-privadas.',
-      encaje:'Responde directamente a una necesidad urbana cuantificada por el motor ('+d.tipo+': '+d.score+'/100).',
-      deficit_resuelto:d.tipo,
-      programa_ratio:0.40
+  // Segunda pasada: completar a 3 con los siguientes mejores aunque repitan sistema
+  if(top.length<3){
+    C.forEach(function(c){
+      if(top.length>=3||c.fit<=0)return;
+      if(top.indexOf(c)<0)top.push(c);
     });
   }
-  // Segundo equipamiento si hay otro déficit fuerte
-  if(deficits.length>1){
-    var d2=deficits[1];
-    add({
-      id:'equipamiento2_'+d2.tipo, icon:d2.icon,
-      titulo:'Equipamiento complementario: '+d2.tipo,
-      fit: 42 + Math.round((62-d2.score)*1.0),
-      desc:'Además, el entorno presenta carencia de '+d2.tipo+' ('+d2.score+'/100). Un componente orientado a este servicio puede integrarse al proyecto principal como valor agregado y diferenciador comercial.',
-      encaje:'Segundo déficit urbano detectado en el análisis.',
-      deficit_resuelto:d2.tipo,
-      programa_ratio:0.35
-    });
-  }
+  top.sort(function(a,b){return b.fit-a.fit;});
 
-  // 9. Desarrollo logístico/industrial ligero (si infra alta y no turístico)
-  add({
-    id:'logistico', icon:'🏭',
-    titulo:'Centro logístico o nave industrial ligera',
-    fit: (!esTuristico?20:0) + Math.round(sAcceso*0.3) + (area>8000?20:0) + (uso.indexOf('industrial')>=0?20:0) + (sRiesgo<40&&sRiesgo>0?-15:5),
-    desc:'La accesibilidad vial ('+sAcceso+'/100) y la dimensión del lote permiten un centro logístico o naves industriales ligeras, aprovechando la cercanía a vías principales y la creciente demanda de almacenamiento y distribución.',
-    encaje:'Conectividad vial y superficie adecuada para uso logístico.',
-    programa_ratio:0.60
-  });
-
-  // 10. Ecoturismo / desarrollo de baja densidad (si riesgo/protección o uso forestal)
-  add({
-    id:'ecoturismo', icon:'🌿',
-    titulo:'Ecoturismo o desarrollo de baja densidad sostenible',
-    fit: (uso.indexOf('forestal')>=0||uso.indexOf('conservación')>=0||uso.indexOf('ecoturismo')>=0?40:0) + (sRiesgo>0&&sRiesgo<55?20:0) + (esTuristico?15:0) + (area>10000?15:0),
-    desc:'Dado el perfil del terreno (uso '+uso+'), un desarrollo de baja densidad orientado al ecoturismo —cabañas, glamping, senderos— aprovecha el valor paisajístico respetando las restricciones ambientales, con menor inversión en infraestructura y nicho de mercado en crecimiento.',
-    encaje:'Perfil ambiental del lote orientado a desarrollo sostenible.',
-    programa_ratio:0.25
-  });
-
-  // ── Ordenar por puntaje de encaje y tomar los 3 mejores ──
-  candidatos.sort(function(a,b){return b.fit-a.fit;});
-  var top=candidatos.filter(function(c){return c.fit>0;}).slice(0,3);
-
-  // ── Asignar prioridad según el puntaje de encaje real ──
   return top.map(function(c){
     var prioridad = c.fit>=70?'Alta': c.fit>=45?'Media-Alta': c.fit>=25?'Media':'Exploratoria';
-    return {
-      icon:c.icon, titulo:c.titulo, prioridad:prioridad,
-      desc:c.desc, encaje:c.encaje,
-      deficit_resuelto:c.deficit_resuelto||null,
-      fit_score:c.fit, programa_ratio:c.programa_ratio||0.5
-    };
+    return {icon:c.icon,titulo:c.titulo,prioridad:prioridad,sistema:c.sistema,
+      desc:c.desc,encaje:c.encaje,deficit_resuelto:c.deficit_resuelto||null,
+      fit_score:Math.round(c.fit),programa_ratio:c.ratio||0.5,energia:c.energia||false};
   });
 }
 
@@ -4065,7 +4066,7 @@ function verCertificado(){
         var prioColor=p.prioridad.indexOf('Alta')>=0?'#27AE60':p.prioridad.indexOf('Media-Alta')>=0?'#16A085':'#F39C12';
         html+='<div class="no-break" style="border:1px solid #ddd;border-left:4px solid '+prioColor+';border-radius:0 8px 8px 0;padding:12px 16px;margin:10px 0;background:#fafbfc">'
           +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">'
-          +'<div style="font-size:11pt;font-weight:700;color:#0d2b4e">'+p.icon+' '+(i+1)+'. '+p.titulo+'</div>'
+          +'<div style="font-size:11pt;font-weight:700;color:#0d2b4e">'+p.icon+' '+(i+1)+'. '+p.titulo+'</div>'+(p.sistema?'<div style="font-size:7.5pt;color:#888;text-transform:uppercase;letter-spacing:.5px;margin-top:2px">Sistema urbano: '+p.sistema+'</div>':'')
           +'<div style="font-size:8pt;font-weight:700;color:white;background:'+prioColor+';padding:2px 8px;border-radius:10px">Prioridad '+p.prioridad+'</div>'
           +'</div>'
           +'<p style="font-size:9.5pt;color:#333;line-height:1.6;margin:6px 0">'+p.desc+'</p>'
