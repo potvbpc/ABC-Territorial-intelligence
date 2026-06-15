@@ -10,6 +10,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <link href="https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.css" rel="stylesheet"/>
 <script src="https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js" onerror="window._turfFailed=true;console.warn('Turf.js no disponible — la detección de afectación ambiental queda inactiva, el resto funciona normal')"></script>
 <style>.mapboxgl-ctrl-logo,.mapboxgl-ctrl-attrib{display:none!important}.abc-popup .mapboxgl-popup-content{background:transparent!important;padding:0!important;box-shadow:none!important;border:none!important}.abc-popup .mapboxgl-popup-tip{display:none!important}@keyframes abcspin{to{transform:rotate(360deg)}}
 </style>
 <style>
@@ -39,7 +40,7 @@ select.inp option{background:#0E1E2E}
 .fa2{animation:fu .33s .14s ease both}
 </style>
 </head>
-<!-- VERSION-DEPLOY: VF15 — Gestion de terrenos: editar datos, actualizar limites, eliminar (con Supabase) -->
+<!-- VERSION-DEPLOY: VF16 — Afectacion ambiental completa: interseccion real + alerta + propuestas condicionadas + panel carga capas -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -170,7 +171,7 @@ function goTo(p){
     PAGE='public'; buildNav(); render(); return;
   }
   // Admin-only pages
-  var adminOnly=['overview','layers','opps','pricing','users','commissions','settings'];
+  var adminOnly=['overview','layers','opps','pricing','users','commissions','settings','zones'];
   if(adminOnly.indexOf(p)>=0 && ROLE!=='admin'){
     PAGE='dashboard'; buildNav(); render(); return;
   }
@@ -183,7 +184,7 @@ function buildNav(){
   const isProp=ROLE==="propietario";
   const noAuth=!ROLE;
   const grp=isA
-    ?[{items:[{id:"overview",i:"⬛",l:"Admin Dashboard"},{id:"layers",i:"▧",l:"Capas del Motor"},{id:"opps",i:"🌐",l:"Oportunidades"},{id:"pricing",i:"💳",l:"Planes y Precios"},{id:"users",i:"👥",l:"Usuarios"},{id:"commissions",i:"💰",l:"Comisiones"},{id:"settings",i:"🎨",l:"Configuración"}]}]
+    ?[{items:[{id:"overview",i:"⬛",l:"Admin Dashboard"},{id:"layers",i:"▧",l:"Capas del Motor"},{id:"opps",i:"🌐",l:"Oportunidades"},{id:"pricing",i:"💳",l:"Planes y Precios"},{id:"users",i:"👥",l:"Usuarios"},{id:"commissions",i:"💰",l:"Comisiones"},{id:"zones",i:"🛡",l:"Zonas de Restricción"},{id:"settings",i:"🎨",l:"Configuración"}]}]
     :noAuth
     ?[{title:null,items:[{id:"public",i:"🌍",l:"Portal Público"},{id:"login",i:"🔐",l:"Iniciar sesión"},{id:"register",i:"✨",l:"Crear cuenta gratis"}]}]
     :isInv
@@ -2853,6 +2854,7 @@ function render(){
     case "users":       rUsers();      break;
     case "commissions": rCommissions();break;
     case "settings":    rSettings();     break;
+    case "zones":       rZones();        break;
     case "register":    rRegister();     break;
     case "upload":      rUpload();       break;
     case "documents":   rDocuments();    break;
@@ -3591,6 +3593,87 @@ function runWLC(metrics,pca){
   return{score:score,score_raw:Math.round(raw),metrics:norm,weights:weights,restrictions:restrictions,restriction_factor:rf,valor_actual:va,valor_potencial:vp,rlvm:null,pca:pca,metrics_detail:metrics,breakdown:activeLayers.map(function(l){return{id:l.id,label:l.label,icon:l.icon,color:l.color,xi:norm[l.id]||0,wi:Math.round((weights[l.id]||l.w)*100),contribution:Math.round((weights[l.id]||l.w)*(norm[l.id]||0))};})};
 }
 
+// ════════════════════════════════════════════════════════════════
+// DETECCIÓN DE AFECTACIÓN AMBIENTAL / RIESGO (VF16)
+// Cruza el polígono del lote contra zonas oficiales (restriction_zones)
+// usando Turf.js. Degrada con elegancia si Turf no está o no hay zonas.
+// ════════════════════════════════════════════════════════════════
+var RESTRICTION_ZONES_CACHE=null;
+
+async function loadRestrictionZones(province){
+  // Cargar zonas de la provincia (con cache simple)
+  try{
+    if(typeof SUPA==='undefined')return [];
+    var q=SUPA.from('restriction_zones').select('*').eq('active',true);
+    if(province)q=q.or('province.eq.'+province+',province.is.null');
+    var r=await q;
+    if(r.error){console.warn('zones load:',r.error);return [];}
+    return r.data||[];
+  }catch(e){console.warn('loadRestrictionZones:',e);return [];}
+}
+
+async function detectarAfectacion(landGeojson, province){
+  // Devuelve {afectado, conflictos:[{name,zone_type,severity,source,pct,notes}], maxSeveridad}
+  var resultado={afectado:false,conflictos:[],maxSeveridad:null,pctTotal:0};
+  try{
+    // Si Turf no cargó o no hay polígono, salir limpio (degradación elegante)
+    if(window._turfFailed||typeof turf==='undefined')return resultado;
+    if(!landGeojson||!landGeojson.coordinates)return resultado;
+
+    var zones=await loadRestrictionZones(province);
+    if(!zones||zones.length===0)return resultado; // sin zonas cargadas → motor normal
+
+    // Normalizar el polígono del lote a Feature de Turf
+    var landPoly;
+    try{
+      var geom=(landGeojson.type==='Feature')?landGeojson.geometry:landGeojson;
+      landPoly=turf.polygon(geom.coordinates);
+    }catch(e){console.warn('land poly invalida:',e);return resultado;}
+
+    var areaLote=0;
+    try{areaLote=turf.area(landPoly);}catch(e){}
+
+    var severidadRank={critica:3,condicionada:2,riesgo:1};
+    var maxRank=0;
+
+    zones.forEach(function(z){
+      try{
+        if(!z.geojson||!z.geojson.coordinates)return;
+        var zonePoly;
+        try{
+          zonePoly=(z.geojson.type==='MultiPolygon')?turf.multiPolygon(z.geojson.coordinates):turf.polygon(z.geojson.coordinates);
+        }catch(e){return;}
+
+        // ¿Hay intersección real?
+        if(turf.booleanIntersects(landPoly,zonePoly)){
+          var pct=0;
+          try{
+            // Manejo robusto: Turf v7 usa featureCollection, v6 usa (a,b)
+            var inter=null;
+            try{inter=turf.intersect(turf.featureCollection([landPoly,zonePoly]));}
+            catch(ev7){try{inter=turf.intersect(landPoly,zonePoly);}catch(ev6){inter=null;}}
+            if(inter&&areaLote>0){
+              var areaInter=turf.area(inter);
+              pct=Math.min(100,Math.round((areaInter/areaLote)*100));
+            }
+          }catch(e){pct=null;}
+
+          resultado.conflictos.push({
+            name:z.name,zone_type:z.zone_type,severity:z.severity,
+            source:z.source||'MIMARENA',pct:pct,notes:z.notes||''
+          });
+          var rank=severidadRank[z.severity]||1;
+          if(rank>maxRank){maxRank=rank;resultado.maxSeveridad=z.severity;}
+          if(pct&&pct>resultado.pctTotal)resultado.pctTotal=pct;
+        }
+      }catch(e){console.warn('zona '+(z.name||'?')+':',e);}
+    });
+
+    resultado.afectado=resultado.conflictos.length>0;
+  }catch(e){console.warn('detectarAfectacion:',e);}
+  return resultado;
+}
+
 async function runFullAnalysis(){
   var m=await fetchGisMetrics();
   var pca=runPCA(m);
@@ -3601,6 +3684,13 @@ async function runFullAnalysis(){
   result.rlvm=rlvm;
   result.valor_actual=rlvm.valor_suelo_actual;
   result.valor_potencial=rlvm.valor_suelo_residual;
+  // VF16: Detección de afectación ambiental por intersección geográfica real
+  updateAnalysisStatus("Verificando afectación ambiental y zonas de riesgo...");
+  try{
+    var geomLote=(ACTIVE_LAND&&ACTIVE_LAND.geojson)?ACTIVE_LAND.geojson:(TERRENO_DEMO?TERRENO_DEMO.geometry:null);
+    var prov=(ACTIVE_LAND&&ACTIVE_LAND.province)?ACTIVE_LAND.province:'';
+    result.afectacion=await detectarAfectacion(geomLote,prov);
+  }catch(e){console.warn('afectacion:',e);result.afectacion={afectado:false,conflictos:[]};}
   WLC_RESULT=result;
   return result;
 }
@@ -3843,6 +3933,34 @@ function generarPropuestasProyecto(r){
     encaje:'Conectividad vial y superficie adecuada para logística.',
     ratio:0.6});
 
+  // ── VF16: Condicionar propuestas según afectación ambiental ──
+  // Un lote con restricción crítica NO debe recibir propuestas de
+  // desarrollo intensivo como primera opción.
+  var afect=(r&&r.afectacion)?r.afectacion:null;
+  if(afect&&afect.afectado){
+    var sev=afect.maxSeveridad;
+    // Tipos compatibles con afectación (bajo impacto / conservación)
+    var compatibles={ecoturismo:1,eco_parque:1,parque_urbano:1,acueducto:1,fotovoltaico:1,eolico:1};
+    C.forEach(function(c){
+      var esCompatible=compatibles[c.id];
+      if(sev==='critica'){
+        // Penalizar fuerte lo no compatible; impulsar conservación/bajo impacto
+        if(!esCompatible)c.fit=c.fit*0.25;
+        else c.fit=c.fit*1.3+15;
+        c.afectado=!esCompatible;
+      } else if(sev==='condicionada'){
+        if(!esCompatible)c.fit=c.fit*0.6;
+        else c.fit=c.fit*1.15+8;
+        c.afectado=!esCompatible;
+      } else if(sev==='riesgo'){
+        // Riesgo: penalización leve a edificación pesada
+        var pesada={complejo_turistico:1,multifamiliar:1,comercial:1,logistico:1,mixto_compacto:1};
+        if(pesada[c.id])c.fit=c.fit*0.75;
+        c.afectado=pesada[c.id]?true:false;
+      }
+    });
+  }
+
   // ── Ordenar por encaje, asegurar DIVERSIDAD de sistemas ──
   C.sort(function(a,b){return b.fit-a.fit;});
   var top=[], sistemasUsados={};
@@ -3864,13 +3982,178 @@ function generarPropuestasProyecto(r){
     var prioridad = c.fit>=70?'Alta': c.fit>=45?'Media-Alta': c.fit>=25?'Media':'Exploratoria';
     return {icon:c.icon,titulo:c.titulo,prioridad:prioridad,sistema:c.sistema,
       desc:c.desc,encaje:c.encaje,deficit_resuelto:c.deficit_resuelto||null,
-      fit_score:Math.round(c.fit),programa_ratio:c.ratio||0.5,energia:c.energia||false};
+      fit_score:Math.round(c.fit),programa_ratio:c.ratio||0.5,energia:c.energia||false,
+      afectado:c.afectado||false};
   });
 }
 
 // ════════════════════════════════════════════════════════════════
 // REPORTE DETALLADO DE PROPUESTAS (Profesional+)
 // ════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════
+// PANEL ADMIN — ZONAS DE RESTRICCIÓN (carga de capas MIMARENA) VF16
+// ════════════════════════════════════════════════════════════════
+var ZONES_LIST=[];
+async function rZones(){
+  var pt=document.getElementById('page-title');if(pt)pt.textContent='Zonas de Restricción';
+  var con=document.getElementById('content');
+  con.innerHTML='<div style="max-width:1000px;margin:0 auto">'
+    +'<div style="background:'+C.c1+';border:1px solid '+C.bd+';border-radius:14px;padding:22px;margin-bottom:18px">'
+      +'<div style="font-size:14px;font-weight:800;color:'+C.tx+';margin-bottom:6px">📤 Cargar nueva zona</div>'
+      +'<div style="font-size:11px;color:'+C.tm+';margin-bottom:16px">Sube un archivo KML o GeoJSON con el polígono oficial de la zona. El sistema lo cruzará automáticamente con los terrenos analizados.</div>'
+      +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">'
+        +'<div><div style="font-size:9px;color:'+C.tm+';font-weight:700;text-transform:uppercase;margin-bottom:4px">Nombre de la zona</div><input id="z-name" placeholder="Ej: Parque Nacional Los Haitises" style="width:100%;background:rgba(255,255,255,.06);border:1px solid '+C.bd+';color:'+C.tx+';padding:10px 12px;border-radius:8px;font-size:13px"/></div>'
+        +'<div><div style="font-size:9px;color:'+C.tm+';font-weight:700;text-transform:uppercase;margin-bottom:4px">Provincia</div><input id="z-prov" placeholder="Ej: Samaná (vacío = todo el país)" style="width:100%;background:rgba(255,255,255,.06);border:1px solid '+C.bd+';color:'+C.tx+';padding:10px 12px;border-radius:8px;font-size:13px"/></div>'
+      +'</div>'
+      +'<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:14px">'
+        +'<div><div style="font-size:9px;color:'+C.tm+';font-weight:700;text-transform:uppercase;margin-bottom:4px">Tipo de zona</div><select id="z-type" onchange="_zoneTypeChanged()" style="width:100%;background:#0E1E2E;border:1px solid '+C.bd+';color:'+C.tx+';padding:10px 12px;border-radius:8px;font-size:13px"><option value="area_protegida">Área protegida</option><option value="humedal">Humedal protegido</option><option value="litoral">Zona litoral (60m costa)</option><option value="amortiguamiento">Zona de amortiguamiento</option><option value="inundacion">Zona inundable</option><option value="pendiente">Pendiente vulnerable</option><option value="falla">Falla sísmica</option></select></div>'
+        +'<div><div style="font-size:9px;color:'+C.tm+';font-weight:700;text-transform:uppercase;margin-bottom:4px">Severidad</div><select id="z-sev" style="width:100%;background:#0E1E2E;border:1px solid '+C.bd+';color:'+C.tx+';padding:10px 12px;border-radius:8px;font-size:13px"><option value="critica">Crítica (bloquea)</option><option value="condicionada">Condicionada</option><option value="riesgo">Riesgo</option></select></div>'
+        +'<div><div style="font-size:9px;color:'+C.tm+';font-weight:700;text-transform:uppercase;margin-bottom:4px">Fuente</div><select id="z-src" style="width:100%;background:#0E1E2E;border:1px solid '+C.bd+';color:'+C.tx+';padding:10px 12px;border-radius:8px;font-size:13px"><option>MIMARENA</option><option>INDRHI</option><option>ONESVIE</option><option>Otro</option></select></div>'
+      +'</div>'
+      +'<div style="margin-bottom:14px"><div style="font-size:9px;color:'+C.tm+';font-weight:700;text-transform:uppercase;margin-bottom:4px">Archivo KML / GeoJSON</div><input type="file" id="z-file" accept=".kml,.geojson,.json" style="width:100%;background:rgba(255,255,255,.06);border:1px solid '+C.bd+';color:'+C.tx+';padding:10px 12px;border-radius:8px;font-size:12px"/></div>'
+      +'<div id="z-status" style="display:none;margin-bottom:14px"></div>'
+      +'<button onclick="cargarZona()" style="background:linear-gradient(135deg,#1565C0,#0D47A1);color:white;padding:11px 26px;border-radius:9px;font-size:13px;font-weight:700;border:none;cursor:pointer">Cargar zona al sistema</button>'
+      +(window._turfFailed?'<div style="margin-top:12px;font-size:11px;color:#E67E22">⚠ Turf.js no se cargó. La detección de intersección está inactiva hasta recargar la página con conexión.</div>':'')
+    +'</div>'
+    +'<div id="z-list" style="background:'+C.c1+';border:1px solid '+C.bd+';border-radius:14px;padding:22px"><div style="color:'+C.tm+';font-size:12px">Cargando zonas...</div></div>'
+  +'</div>';
+  cargarListaZonas();
+}
+
+function _zoneTypeChanged(){
+  // Auto-sugerir severidad según tipo
+  var t=document.getElementById('z-type').value;
+  var sev=document.getElementById('z-sev');
+  if(t==='area_protegida'||t==='humedal'||t==='litoral')sev.value='critica';
+  else if(t==='amortiguamiento')sev.value='condicionada';
+  else sev.value='riesgo';
+}
+
+async function cargarListaZonas(){
+  var cont=document.getElementById('z-list');if(!cont)return;
+  try{
+    var r=await SUPA.from('restriction_zones').select('*').order('created_at',{ascending:false});
+    if(r.error)throw r.error;
+    ZONES_LIST=r.data||[];
+    if(ZONES_LIST.length===0){cont.innerHTML='<div style="text-align:center;padding:30px;color:'+C.tm+';font-size:12px">No hay zonas cargadas todavía. Sube la primera capa oficial para activar la detección de afectación.</div>';return;}
+    var tipoN={area_protegida:'Área protegida',humedal:'Humedal',litoral:'Litoral',amortiguamiento:'Amortiguamiento',inundacion:'Inundable',pendiente:'Pendiente',falla:'Falla sísmica'};
+    var sevColor={critica:'#E74C3C',condicionada:'#E67E22',riesgo:'#F1C40F'};
+    var rows=ZONES_LIST.map(function(z){
+      return '<tr style="border-bottom:1px solid '+C.bd+'">'
+        +'<td style="padding:10px 8px;color:'+C.tx+';font-weight:600">'+z.name+'</td>'
+        +'<td style="padding:10px 8px;color:'+C.tm+'">'+(tipoN[z.zone_type]||z.zone_type)+'</td>'
+        +'<td style="padding:10px 8px"><span style="background:'+(sevColor[z.severity]||'#888')+';color:#051410;padding:2px 8px;border-radius:8px;font-size:10px;font-weight:700">'+z.severity+'</span></td>'
+        +'<td style="padding:10px 8px;color:'+C.tm+'">'+(z.province||'Todo el país')+'</td>'
+        +'<td style="padding:10px 8px;color:'+C.tm+'">'+(z.source||'—')+'</td>'
+        +'<td style="padding:10px 8px;text-align:right"><button onclick="eliminarZona(\''+z.id+'\')" style="background:rgba(231,76,60,.1);border:1px solid rgba(231,76,60,.3);color:#E74C3C;padding:5px 12px;border-radius:7px;font-size:11px;cursor:pointer">Eliminar</button></td>'
+      +'</tr>';
+    }).join('');
+    cont.innerHTML='<div style="font-size:14px;font-weight:800;color:'+C.tx+';margin-bottom:14px">🛡 Zonas cargadas ('+ZONES_LIST.length+')</div>'
+      +'<table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="border-bottom:2px solid '+C.bd+'"><th style="text-align:left;padding:8px;color:'+C.tm+';font-size:10px;text-transform:uppercase">Zona</th><th style="text-align:left;padding:8px;color:'+C.tm+';font-size:10px;text-transform:uppercase">Tipo</th><th style="text-align:left;padding:8px;color:'+C.tm+';font-size:10px;text-transform:uppercase">Severidad</th><th style="text-align:left;padding:8px;color:'+C.tm+';font-size:10px;text-transform:uppercase">Provincia</th><th style="text-align:left;padding:8px;color:'+C.tm+';font-size:10px;text-transform:uppercase">Fuente</th><th></th></tr></thead><tbody>'+rows+'</tbody></table>';
+  }catch(e){cont.innerHTML='<div style="color:#E74C3C;font-size:12px">Error cargando zonas: '+(e.message||'')+'<br><span style="color:'+C.tm+'">¿Ejecutaste el script ABC_Supabase_ZONAS_restriccion.sql?</span></div>';}
+}
+
+async function cargarZona(){
+  var name=document.getElementById('z-name').value.trim();
+  var prov=document.getElementById('z-prov').value.trim();
+  var type=document.getElementById('z-type').value;
+  var sev=document.getElementById('z-sev').value;
+  var src=document.getElementById('z-src').value;
+  var fileInp=document.getElementById('z-file');
+  var status=document.getElementById('z-status');
+  function showStatus(msg,color){status.style.display='block';status.innerHTML='<div style="background:rgba('+(color==='red'?'231,76,60':color==='green'?'46,204,113':'242,201,76')+',.1);border:1px solid rgba('+(color==='red'?'231,76,60':color==='green'?'46,204,113':'242,201,76')+',.3);border-radius:8px;padding:11px 14px;font-size:12px;color:'+(color==='red'?'#E74C3C':color==='green'?'#2ECC71':'#F2C94C')+'">'+msg+'</div>';}
+  if(!name){showStatus('⚠ El nombre de la zona es obligatorio.','red');return;}
+  if(!fileInp.files||!fileInp.files[0]){showStatus('⚠ Selecciona un archivo KML o GeoJSON.','red');return;}
+  var file=fileInp.files[0];
+  var reader=new FileReader();
+  reader.onload=async function(e){
+    try{
+      var txt=e.target.result;var geojson=null;
+      var ext=file.name.split('.').pop().toLowerCase();
+      if(ext==='geojson'||ext==='json'){
+        var parsed=JSON.parse(txt);
+        var geom=parsed.type==='FeatureCollection'?(parsed.features[0]&&parsed.features[0].geometry):(parsed.type==='Feature'?parsed.geometry:parsed);
+        if(geom&&geom.coordinates)geojson=geom;
+      } else if(ext==='kml'){
+        var allCoords=txt.match(/<coordinates>([\s\S]*?)<\/coordinates>/gi);
+        if(allCoords&&allCoords.length>0){
+          var polys=[];
+          allCoords.forEach(function(block){
+            var raw=block.replace(/<\/?coordinates>/gi,'').trim();
+            var pts=raw.split(/[\s\n\r\t]+/).map(function(c){var p=c.split(',');return[parseFloat(p[0]),parseFloat(p[1])];}).filter(function(p){return!isNaN(p[0])&&!isNaN(p[1]);});
+            if(pts.length>=3){var f=pts[0],l=pts[pts.length-1];if(f[0]!==l[0]||f[1]!==l[1])pts.push([f[0],f[1]]);polys.push(pts);}
+          });
+          if(polys.length===1)geojson={type:'Polygon',coordinates:[polys[0]]};
+          else if(polys.length>1)geojson={type:'MultiPolygon',coordinates:polys.map(function(p){return [p];})};
+        }
+      }
+      if(!geojson||!geojson.coordinates){showStatus('⚠ No se pudo extraer un polígono válido del archivo.','red');return;}
+      showStatus('Guardando zona...','yellow');
+      var ins=await SUPA.from('restriction_zones').insert({name:name,zone_type:type,severity:sev,source:src,province:prov||null,geojson:geojson,active:true});
+      if(ins.error)throw ins.error;
+      showStatus('✓ Zona «'+name+'» cargada correctamente.','green');
+      document.getElementById('z-name').value='';document.getElementById('z-prov').value='';fileInp.value='';
+      RESTRICTION_ZONES_CACHE=null; // invalidar cache
+      cargarListaZonas();
+    }catch(err){console.error('cargarZona:',err);showStatus('Error: '+(err.message||'no se pudo cargar'),'red');}
+  };
+  reader.readAsText(file);
+}
+
+async function eliminarZona(id){
+  if(!confirm('¿Eliminar esta zona de restricción?'))return;
+  try{
+    var del=await SUPA.from('restriction_zones').delete().eq('id',id);
+    if(del.error)throw del.error;
+    RESTRICTION_ZONES_CACHE=null;
+    cargarListaZonas();
+  }catch(e){alert('No se pudo eliminar: '+(e.message||''));}
+}
+
+// ════════════════════════════════════════════════════════════════
+// BANNER DE ALERTA DE AFECTACIÓN AMBIENTAL (VF16)
+// ════════════════════════════════════════════════════════════════
+function generarAlertaAfectacion(r){
+  if(!r||!r.afectacion||!r.afectacion.afectado)return '';
+  var af=r.afectacion;
+  var sevConfig={
+    critica:{color:'#C0392B',bg:'#FDEDEC',border:'#E74C3C',icon:'⛔',titulo:'RESTRICCIÓN CRÍTICA DETECTADA',
+      msg:'El polígono del terreno intersecta una o más zonas de protección ambiental. El desarrollo convencional está severamente restringido o prohibido por ley.'},
+    condicionada:{color:'#B9770E',bg:'#FEF5E7',border:'#E67E22',icon:'⚠',titulo:'ZONA DE AMORTIGUAMIENTO',
+      msg:'El polígono cae dentro de una zona de amortiguamiento. El desarrollo es posible pero condicionado a usos de baja intensidad y autorización ambiental previa.'},
+    riesgo:{color:'#A04000',bg:'#FEF9E7',border:'#F1C40F',icon:'⚠',titulo:'ZONA DE RIESGO AMBIENTAL',
+      msg:'El polígono se ubica en una zona de riesgo (inundación, pendiente o sísmico). El desarrollo requiere estudios de mitigación y obras de protección.'}
+  };
+  var cfg=sevConfig[af.maxSeveridad]||sevConfig.riesgo;
+  var tipoNombre={area_protegida:'Área protegida',humedal:'Humedal protegido',litoral:'Zona litoral protegida',amortiguamiento:'Zona de amortiguamiento',inundacion:'Zona inundable',pendiente:'Pendiente vulnerable',falla:'Falla sísmica'};
+
+  var filas=af.conflictos.map(function(c){
+    return '<tr><td style="font-weight:600">'+(tipoNombre[c.zone_type]||c.zone_type)+'</td>'
+      +'<td>'+c.name+'</td>'
+      +'<td style="text-align:center">'+(c.pct!==null&&c.pct!==undefined?c.pct+'%':'parcial')+'</td>'
+      +'<td>'+(c.source||'MIMARENA')+'</td></tr>';
+  }).join('');
+
+  var instituciones=[];
+  af.conflictos.forEach(function(c){
+    var inst=c.source||(c.zone_type==='inundacion'?'INDRHI':c.zone_type==='falla'?'ONESVIE':'MIMARENA');
+    if(instituciones.indexOf(inst)<0)instituciones.push(inst);
+  });
+
+  return '<div class="no-break" style="background:'+cfg.bg+';border:2px solid '+cfg.border+';border-radius:10px;padding:16px 18px;margin:14px 0">'
+    +'<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">'
+      +'<span style="font-size:22px">'+cfg.icon+'</span>'
+      +'<div style="font-size:13pt;font-weight:800;color:'+cfg.color+'">'+cfg.titulo+'</div>'
+    +'</div>'
+    +'<p style="font-size:10pt;color:#333;line-height:1.6;margin:6px 0">'+cfg.msg+'</p>'
+    +(af.pctTotal>0?'<p style="font-size:10pt;color:'+cfg.color+';font-weight:700;margin:6px 0">Aproximadamente el '+af.pctTotal+'% del terreno está afectado.</p>':'')
+    +'<table style="margin:10px 0;font-size:9pt"><thead><tr><th>Tipo de zona</th><th>Denominación</th><th style="text-align:center">% lote</th><th>Fuente</th></tr></thead><tbody>'+filas+'</tbody></table>'
+    +'<div style="font-size:9pt;color:#555;background:rgba(255,255,255,.5);border-radius:6px;padding:8px 12px;margin-top:8px">'
+      +'<strong>Acción requerida:</strong> Antes de cualquier transacción o desarrollo, valide los límites oficiales con '+instituciones.join(', ')+' y la Dirección de Catastro. Esta detección se basa en el cruce geográfico del polígono con las capas oficiales cargadas en el sistema.'
+    +'</div>'
+  +'</div>';
+}
+
 function verReportePropuestas(){
   var esPro=(USER_PLAN==='Profesional'||USER_PLAN==='Premium'||USER_PLAN==='Enterprise'||ROLE==='admin');
   if(!esPro){alert('El reporte detallado de propuestas está disponible en el plan Profesional. Actualiza tu plan para acceder.');return;}
@@ -4040,6 +4323,7 @@ function verCertificado(){
   var content='<div style="text-align:center;margin-bottom:16px"><img src="data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEAYABgAAD/4QLgRXhpZgAATU0AKgAAAAgABAE7AAIAAAAHAAABSodpAAQAAAABAAABUpydAAEAAAAOAAACyuocAAcAAAEMAAAAPgAAAAAc6gAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAATGVub3ZvAAAABZADAAIAAAAUAAACoJAEAAIAAAAUAAACtJKRAAIAAAADNzEAAJKSAAIAAAADNzEAAOocAAcAAAEMAAABlAAAAAAc6gAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMjAyNjowMjoxOSAxNDowMTozOAAyMDI2OjAyOjE5IDE0OjAxOjM4AAAATABlAG4AbwB2AG8AAAD/4QQZaHR0cDovL25zLmFkb2JlLmNvbS94YXAvMS4wLwA8P3hwYWNrZXQgYmVnaW49J++7vycgaWQ9J1c1TTBNcENlaGlIenJlU3pOVGN6a2M5ZCc/Pg0KPHg6eG1wbWV0YSB4bWxuczp4PSJhZG9iZTpuczptZXRhLyI+PHJkZjpSREYgeG1sbnM6cmRmPSJodHRwOi8vd3d3LnczLm9yZy8xOTk5LzAyLzIyLXJkZi1zeW50YXgtbnMjIj48cmRmOkRlc2NyaXB0aW9uIHJkZjphYm91dD0idXVpZDpmYWY1YmRkNS1iYTNkLTExZGEtYWQzMS1kMzNkNzUxODJmMWIiIHhtbG5zOmRjPSJodHRwOi8vcHVybC5vcmcvZGMvZWxlbWVudHMvMS4xLyIvPjxyZGY6RGVzY3JpcHRpb24gcmRmOmFib3V0PSJ1dWlkOmZhZjViZGQ1LWJhM2QtMTFkYS1hZDMxLWQzM2Q3NTE4MmYxYiIgeG1sbnM6eG1wPSJodHRwOi8vbnMuYWRvYmUuY29tL3hhcC8xLjAvIj48eG1wOkNyZWF0ZURhdGU+MjAyNi0wMi0xOVQxNDowMTozOC43MDU8L3htcDpDcmVhdGVEYXRlPjwvcmRmOkRlc2NyaXB0aW9uPjxyZGY6RGVzY3JpcHRpb24gcmRmOmFib3V0PSJ1dWlkOmZhZjViZGQ1LWJhM2QtMTFkYS1hZDMxLWQzM2Q3NTE4MmYxYiIgeG1sbnM6ZGM9Imh0dHA6Ly9wdXJsLm9yZy9kYy9lbGVtZW50cy8xLjEvIj48ZGM6Y3JlYXRvcj48cmRmOlNlcSB4bWxuczpyZGY9Imh0dHA6Ly93d3cudzMub3JnLzE5OTkvMDIvMjItcmRmLXN5bnRheC1ucyMiPjxyZGY6bGk+TGVub3ZvPC9yZGY6bGk+PC9yZGY6U2VxPg0KCQkJPC9kYzpjcmVhdG9yPjwvcmRmOkRlc2NyaXB0aW9uPjwvcmRmOlJERj48L3g6eG1wbWV0YT4NCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICA8P3hwYWNrZXQg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" alt="ABC Territorial Intelligence" style="height:56px;object-fit:contain"/></div><h2>Certificado de Idoneidad Territorial</h2>'+
     '<p><strong>Terreno:</strong> '+(ACTIVE_LAND?ACTIVE_LAND.name:'—')+' &nbsp;|&nbsp; <strong>Fecha:</strong> '+new Date().toLocaleDateString('es-DO')+'&nbsp;|&nbsp; <strong>Área:</strong> '+(ACTIVE_LAND&&ACTIVE_LAND.area_m2?Math.round(ACTIVE_LAND.area_m2).toLocaleString()+' m²':'—')+'</p>'+'<p><strong>Ubicación:</strong> '+(ACTIVE_LAND?((ACTIVE_LAND.province||'—')+(ACTIVE_LAND.municipio?', '+ACTIVE_LAND.municipio:'')):'—')+'</p>'
     +mapImgHtml+
+    generarAlertaAfectacion(r)+
     '<div class="score-box no-break"><div class="score-num">'+r.score+'</div><div style="font-size:14pt;font-weight:700;color:'+scColor+'">'+scLabel+'</div><div style="font-size:10pt;color:#666;margin-top:4px">Metodología WLC + PCA · Capas GIS oficiales RD</div></div>'+
     '<h2>Metodología</h2><p>Score = (Σ wᵢ·xᵢ) · Πcⱼ = '+r.score_raw+' × '+r.restriction_factor+' = <strong>'+r.score+'</strong></p>'+
     (r.pca.pca_applied?'<p><strong>PCA aplicado:</strong> '+r.pca.corr_pairs.map(function(p){return p.a+' ↔ '+p.b+' (r='+(p.corr*100).toFixed(0)+'%) → '+p.pc;}).join(', ')+'</p>':'')+
@@ -4150,6 +4434,7 @@ function verCertificado(){
           +'<p style="font-size:9.5pt;color:#333;line-height:1.6;margin:6px 0">'+p.desc+'</p>'
           +'<div style="font-size:8.5pt;color:#1565C0;margin-top:4px"><strong>Encaje territorial:</strong> '+p.encaje+'</div>'
           +(p.deficit_resuelto?'<div style="font-size:8.5pt;color:#27AE60;margin-top:2px"><strong>✓ Responde a déficit urbano:</strong> '+p.deficit_resuelto+'</div>':'')
+          +(p.afectado?'<div style="font-size:8.5pt;color:#C0392B;margin-top:2px;background:#FDEDEC;padding:4px 8px;border-radius:4px"><strong>⚠ Sujeto a validación ambiental:</strong> esta propuesta requiere autorización por la afectación detectada en el terreno.</div>':'')
           +'</div>';
       });
       // Acceso al reporte detallado según plan
