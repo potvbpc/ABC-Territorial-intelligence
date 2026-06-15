@@ -39,7 +39,7 @@ select.inp option{background:#0E1E2E}
 .fa2{animation:fu .33s .14s ease both}
 </style>
 </head>
-<!-- VERSION-DEPLOY: VF14 — Calculo de area geodesico preciso (metodo esferico, igual que Google Earth) -->
+<!-- VERSION-DEPLOY: VF15 — Gestion de terrenos: editar datos, actualizar limites, eliminar (con Supabase) -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -1733,13 +1733,26 @@ async function submitTerrain(){
     if(window._loadedArea&&window._loadedArea>0)area=window._loadedArea;
   }
   var saved=null;
+  var esActualizacion=(window._editingLandId!==undefined&&window._editingLandId!==null);
   if(typeof SUPA!=='undefined'&&CURRENT_USER){
-    var ins=await SUPA.from('lands').insert({
-      owner_id:CURRENT_USER.id,name:name,province:prov,municipio:mun,
-      uso_actual:uso,geojson:geojson,area_m2:area,status:'pending'
-    }).select().single();
-    if(!ins.error){saved=ins.data;if(!USER_LANDS)USER_LANDS=[];USER_LANDS.unshift(saved);ACTIVE_LAND=saved;}
-    else{console.error('Insert lands error:',ins.error);alert('⚠ No se pudo guardar en la nube: '+(ins.error.message||'')+'\n'+(ins.error.hint||ins.error.details||''));}
+    if(esActualizacion){
+      // Actualizar límites de un terreno existente
+      try{
+        var upd=await SUPA.from('lands').update({name:name,province:prov,municipio:mun,uso_actual:uso,geojson:geojson,area_m2:area}).eq('id',window._editingLandId).select().single();
+        if(!upd.error){saved=upd.data;
+          var ei=USER_LANDS.findIndex(function(l){return l.id===window._editingLandId;});
+          if(ei>=0)USER_LANDS[ei]=saved;ACTIVE_LAND=saved;
+        }else{throw upd.error;}
+      }catch(e){console.error('update lands:',e);alert('⚠ No se pudo actualizar: '+(e.message||''));}
+      window._editingLandId=null;window._editingLandIdx=null;
+    } else {
+      var ins=await SUPA.from('lands').insert({
+        owner_id:CURRENT_USER.id,name:name,province:prov,municipio:mun,
+        uso_actual:uso,geojson:geojson,area_m2:area,status:'pending'
+      }).select().single();
+      if(!ins.error){saved=ins.data;if(!USER_LANDS)USER_LANDS=[];USER_LANDS.unshift(saved);ACTIVE_LAND=saved;}
+      else{console.error('Insert lands error:',ins.error);alert('⚠ No se pudo guardar en la nube: '+(ins.error.message||'')+'\n'+(ins.error.hint||ins.error.details||''));}
+    }
   }
   if(!saved){
     saved={id:null,name:name,province:prov,municipio:mun,uso_actual:uso,geojson:geojson,area_m2:area,status:'local'};
@@ -4583,9 +4596,10 @@ ${lands.length===0?`
           +'<div style="font-size:10px;color:'+C.td+';margin-top:2px">'+(land.created_at?'Registrado: '+new Date(land.created_at).toLocaleDateString('es-DO'):'Sesión actual')+' · '+(land.status==='analyzed'?'✅ Analizado':'⏳ Pendiente de análisis')+'</div>'
         +'</div>'
       +'</div>'
-      +'<div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">'
+      +'<div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;align-items:center">'
         +(!isActive?'<button onclick="setActiveLand('+i+')" style="background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);color:'+C.tm+';padding:7px 14px;border-radius:8px;font-size:11px;cursor:pointer">Seleccionar</button>':'')
         +'<button onclick="setActiveLandAndAnalyze('+i+')" style="background:linear-gradient(135deg,#1565C0,#0D47A1);color:white;padding:8px 16px;border-radius:8px;font-size:12px;font-weight:700;border:none;cursor:pointer">⚡ Generar diagnóstico</button>'
+        +'<button onclick="gestionTerreno('+i+')" title="Gestionar terreno" style="background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);color:'+C.tm+';padding:7px 11px;border-radius:8px;font-size:14px;cursor:pointer">⚙</button>'
       +'</div>'
     +'</div>';
   }).join('')}
@@ -4621,6 +4635,130 @@ function setActiveLandAndAnalyze(idx){
   setTimeout(startAnalysis,400);
 }
 
+
+// ════════════════════════════════════════════════════════════════
+// GESTIÓN DE TERRENOS — editar, actualizar ubicación, eliminar
+// ════════════════════════════════════════════════════════════════
+function gestionTerreno(idx){
+  var lands=USER_LANDS.length>0?USER_LANDS:(ACTIVE_LAND?[ACTIVE_LAND]:[]);
+  var land=lands[idx];if(!land)return;
+  var ov=document.createElement('div');ov.id='gest-ov';
+  ov.style.cssText='position:fixed;inset:0;z-index:9999;background:rgba(6,16,25,.93);display:flex;align-items:center;justify-content:center;padding:20px';
+  ov.innerHTML='<div style="background:#0E1E2E;border:1px solid rgba(255,255,255,.12);border-radius:18px;padding:28px;max-width:440px;width:100%">'
+    +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">'
+      +'<div style="font-family:Montserrat,sans-serif;font-size:16px;font-weight:900;color:#E8EDF3">⚙ Gestionar terreno</div>'
+      +'<button onclick="document.getElementById(\'gest-ov\').remove()" style="background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);color:#8FA5BE;padding:6px 12px;border-radius:8px;font-size:12px;cursor:pointer">Cerrar ✕</button>'
+    +'</div>'
+    +'<div style="background:rgba(21,101,192,.08);border:1px solid rgba(21,101,192,.2);border-radius:10px;padding:12px 14px;margin-bottom:18px">'
+      +'<div style="font-size:13px;font-weight:700;color:#E8EDF3">'+land.name+'</div>'
+      +'<div style="font-size:11px;color:#8FA5BE;margin-top:2px">'+(land.province||'—')+(land.municipio?', '+land.municipio:'')+' · '+(land.area_m2?(+land.area_m2).toLocaleString()+' m²':'sin área')+'</div>'
+    +'</div>'
+    +'<div style="display:flex;flex-direction:column;gap:10px">'
+      +'<button onclick="editarTerreno('+idx+')" style="background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);color:#E8EDF3;padding:13px 16px;border-radius:10px;font-size:13px;cursor:pointer;text-align:left;display:flex;align-items:center;gap:12px"><span style="font-size:18px">✏️</span><div><div style="font-weight:700">Editar datos del terreno</div><div style="font-size:10px;color:#8FA5BE">Nombre, provincia, municipio, uso, área</div></div></button>'
+      +'<button onclick="actualizarLimites('+idx+')" style="background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);color:#E8EDF3;padding:13px 16px;border-radius:10px;font-size:13px;cursor:pointer;text-align:left;display:flex;align-items:center;gap:12px"><span style="font-size:18px">🗺</span><div><div style="font-weight:700">Actualizar límites / ubicación</div><div style="font-size:10px;color:#8FA5BE">Redibujar el polígono o cargar nuevo archivo</div></div></button>'
+      +'<button onclick="eliminarTerreno('+idx+')" style="background:rgba(231,76,60,.08);border:1px solid rgba(231,76,60,.3);color:#E74C3C;padding:13px 16px;border-radius:10px;font-size:13px;cursor:pointer;text-align:left;display:flex;align-items:center;gap:12px"><span style="font-size:18px">🗑</span><div><div style="font-weight:700">Eliminar terreno</div><div style="font-size:10px;color:rgba(231,76,60,.7)">Esta acción no se puede deshacer</div></div></button>'
+    +'</div>'
+  +'</div>';
+  document.body.appendChild(ov);
+  ov.addEventListener('click',function(e){if(e.target===ov)ov.remove();});
+}
+
+function editarTerreno(idx){
+  var lands=USER_LANDS.length>0?USER_LANDS:(ACTIVE_LAND?[ACTIVE_LAND]:[]);
+  var land=lands[idx];if(!land)return;
+  var g=document.getElementById('gest-ov');if(g)g.remove();
+  var ov=document.createElement('div');ov.id='edit-ov';
+  ov.style.cssText='position:fixed;inset:0;z-index:9999;background:rgba(6,16,25,.93);display:flex;align-items:center;justify-content:center;padding:20px;overflow-y:auto';
+  var provincias=['La Altagracia','La Romana','Samaná','María Trinidad Sánchez','Distrito Nacional','Santo Domingo','Santiago','San Cristóbal','La Vega','Puerto Plata','San Pedro de Macorís','Peravia','Espaillat','Duarte','Monseñor Nouel','Sánchez Ramírez','El Seibo','Hato Mayor','Monte Plata','San José de Ocoa','Azua','Barahona','Bahoruco','Independencia','Pedernales'];
+  var usos=['Turístico hotelero','Turístico recreativo','Ecoturismo','Comercial local','Comercial mixto','Centros comerciales','Oficinas y servicios','Residencial unifamiliar','Residencial multifamiliar','Vivienda social','Industrial ligera','Industrial mediana','Agropecuario','Forestal','Conservación ambiental'];
+  var optProv=provincias.map(function(p){return '<option'+(p===land.province?' selected':'')+'>'+p+'</option>';}).join('');
+  var optUso=usos.map(function(u){return '<option'+(u===land.uso_actual?' selected':'')+'>'+u+'</option>';}).join('');
+  ov.innerHTML='<div style="background:#0E1E2E;border:1px solid rgba(255,255,255,.12);border-radius:18px;padding:28px;max-width:460px;width:100%;margin:auto">'
+    +'<div style="font-family:Montserrat,sans-serif;font-size:16px;font-weight:900;color:#E8EDF3;margin-bottom:18px">✏️ Editar terreno</div>'
+    +'<div style="display:flex;flex-direction:column;gap:14px">'
+      +'<div><div style="font-size:10px;color:#8FA5BE;font-weight:700;text-transform:uppercase;margin-bottom:4px">Nombre del terreno</div><input id="ed-name" value="'+(land.name||'').replace(/"/g,'&quot;')+'" style="width:100%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.13);color:#E8EDF3;padding:10px 12px;border-radius:8px;font-size:13px"/></div>'
+      +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">'
+        +'<div><div style="font-size:10px;color:#8FA5BE;font-weight:700;text-transform:uppercase;margin-bottom:4px">Provincia</div><select id="ed-prov" style="width:100%;background:#0E1E2E;border:1px solid rgba(255,255,255,.13);color:#E8EDF3;padding:10px 12px;border-radius:8px;font-size:13px">'+optProv+'</select></div>'
+        +'<div><div style="font-size:10px;color:#8FA5BE;font-weight:700;text-transform:uppercase;margin-bottom:4px">Municipio</div><input id="ed-mun" value="'+(land.municipio||'').replace(/"/g,'&quot;')+'" style="width:100%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.13);color:#E8EDF3;padding:10px 12px;border-radius:8px;font-size:13px"/></div>'
+      +'</div>'
+      +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">'
+        +'<div><div style="font-size:10px;color:#8FA5BE;font-weight:700;text-transform:uppercase;margin-bottom:4px">Uso actual</div><select id="ed-uso" style="width:100%;background:#0E1E2E;border:1px solid rgba(255,255,255,.13);color:#E8EDF3;padding:10px 12px;border-radius:8px;font-size:13px">'+optUso+'</select></div>'
+        +'<div><div style="font-size:10px;color:#8FA5BE;font-weight:700;text-transform:uppercase;margin-bottom:4px">Área (m²)</div><input id="ed-area" type="number" value="'+(land.area_m2||0)+'" style="width:100%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.13);color:#E8EDF3;padding:10px 12px;border-radius:8px;font-size:13px"/></div>'
+      +'</div>'
+    +'</div>'
+    +'<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:22px">'
+      +'<button onclick="document.getElementById(\'edit-ov\').remove()" style="background:transparent;border:1px solid rgba(255,255,255,.15);color:#8FA5BE;padding:10px 20px;border-radius:9px;font-size:13px;cursor:pointer">Cancelar</button>'
+      +'<button onclick="guardarEdicionTerreno('+idx+')" style="background:linear-gradient(135deg,#2ECC71,#27AE60);color:#051410;padding:10px 24px;border-radius:9px;font-size:13px;font-weight:800;border:none;cursor:pointer">Guardar cambios</button>'
+    +'</div>'
+  +'</div>';
+  document.body.appendChild(ov);
+}
+
+async function guardarEdicionTerreno(idx){
+  var lands=USER_LANDS.length>0?USER_LANDS:(ACTIVE_LAND?[ACTIVE_LAND]:[]);
+  var land=lands[idx];if(!land)return;
+  var nuevoNombre=document.getElementById('ed-name').value.trim();
+  if(!nuevoNombre){alert('El nombre no puede estar vacío.');return;}
+  var cambios={
+    name:nuevoNombre,
+    province:document.getElementById('ed-prov').value,
+    municipio:document.getElementById('ed-mun').value.trim(),
+    uso_actual:document.getElementById('ed-uso').value,
+    area_m2:parseFloat(document.getElementById('ed-area').value)||land.area_m2
+  };
+  // Guardar en Supabase si el terreno está en la nube
+  if(land.id&&typeof SUPA!=='undefined'&&CURRENT_USER){
+    try{
+      var up=await SUPA.from('lands').update(cambios).eq('id',land.id);
+      if(up.error){throw up.error;}
+    }catch(e){console.error('update land:',e);alert('No se pudo guardar: '+(e.message||''));return;}
+  }
+  // Actualizar en memoria
+  Object.keys(cambios).forEach(function(k){land[k]=cambios[k];});
+  if(ACTIVE_LAND&&((land.id&&land.id===ACTIVE_LAND.id)||land.name===ACTIVE_LAND.name)){
+    Object.keys(cambios).forEach(function(k){ACTIVE_LAND[k]=cambios[k];});
+  }
+  var e=document.getElementById('edit-ov');if(e)e.remove();
+  rMisTerrenos();
+  alert('✓ Terreno actualizado correctamente.');
+}
+
+function actualizarLimites(idx){
+  var lands=USER_LANDS.length>0?USER_LANDS:(ACTIVE_LAND?[ACTIVE_LAND]:[]);
+  var land=lands[idx];if(!land)return;
+  var g=document.getElementById('gest-ov');if(g)g.remove();
+  // Marcar este terreno como destino de actualización y abrir el flujo de subida
+  window._editingLandIdx=idx;
+  window._editingLandId=land.id;
+  ACTIVE_LAND=land;
+  alert('Vas a actualizar los límites de «'+land.name+'».\n\nEn la siguiente pantalla puedes redibujar el polígono en el mapa o cargar un nuevo archivo KML/GeoJSON. Al registrar, se actualizará este terreno.');
+  goTo('upload');
+}
+
+async function eliminarTerreno(idx){
+  var lands=USER_LANDS.length>0?USER_LANDS:(ACTIVE_LAND?[ACTIVE_LAND]:[]);
+  var land=lands[idx];if(!land)return;
+  if(!confirm('¿Eliminar el terreno «'+land.name+'»?\n\nEsta acción no se puede deshacer. Se borrará el terreno y sus análisis asociados.'))return;
+  // Borrar de Supabase si está en la nube
+  if(land.id&&typeof SUPA!=='undefined'&&CURRENT_USER){
+    try{
+      var del=await SUPA.from('lands').delete().eq('id',land.id);
+      if(del.error){throw del.error;}
+    }catch(e){console.error('delete land:',e);alert('No se pudo eliminar: '+(e.message||''));return;}
+  }
+  // Quitar de memoria
+  var realIdx=USER_LANDS.indexOf(land);
+  if(realIdx>=0)USER_LANDS.splice(realIdx,1);
+  // Si era el activo, reasignar
+  if(ACTIVE_LAND&&((land.id&&land.id===ACTIVE_LAND.id)||land.name===ACTIVE_LAND.name)){
+    ACTIVE_LAND=USER_LANDS[0]||null;
+    if(ACTIVE_LAND&&ACTIVE_LAND.geojson)TERRENO_DEMO={type:'Feature',geometry:ACTIVE_LAND.geojson,properties:{name:ACTIVE_LAND.name,area_m2:ACTIVE_LAND.area_m2||0}};
+    else TERRENO_DEMO=null;
+  }
+  var g=document.getElementById('gest-ov');if(g)g.remove();
+  rMisTerrenos();
+  alert('✓ Terreno eliminado.');
+}
 
 async function autoCreateOpportunity(land, result){
   if(!CURRENT_USER||!land||!result)return;
