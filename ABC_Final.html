@@ -39,7 +39,7 @@ select.inp option{background:#0E1E2E}
 .fa2{animation:fu .33s .14s ease both}
 </style>
 </head>
-<!-- VERSION-DEPLOY: VF9 — Módulo de Propuestas de Proyecto (motor + certificado + reporte Profesional + solicitud prefactibilidad) -->
+<!-- VERSION-DEPLOY: VF10 — Fix: cada lote usa sus datos reales (elimina selección duplicada + reset por lote) -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -518,17 +518,18 @@ ${APH==="done"?`
 }
 
 function startAnalysis(){
-  // Use drawn polygon if available
-  if(UP_POINTS&&UP_POINTS.length>=3){
-    TERRENO_DEMO={type:'Feature',
-      geometry:{type:'Polygon',coordinates:[[...UP_POINTS,UP_POINTS[0]]]},
-      properties:{name:ACTIVE_LAND?ACTIVE_LAND.name:'Terreno dibujado',
-        area_m2:Math.round(calcAreaM2(UP_POINTS))}};
-    if(ACTIVE_LAND&&!ACTIVE_LAND.geojson)ACTIVE_LAND.geojson=TERRENO_DEMO.geometry;
-    else if(ACTIVE_LAND&&ACTIVE_LAND.geojson)TERRENO_DEMO={type:'Feature',geometry:ACTIVE_LAND.geojson,properties:{name:ACTIVE_LAND.name,area_m2:ACTIVE_LAND.area_m2}};
-  } else if(ACTIVE_LAND&&ACTIVE_LAND.geojson){
+  // PRIORIDAD: si el lote activo ya tiene polígono guardado, usar ESE
+  // (evita que un polígono dibujado de otro lote contamine el análisis)
+  if(ACTIVE_LAND&&ACTIVE_LAND.geojson&&ACTIVE_LAND.geojson.coordinates){
     TERRENO_DEMO={type:'Feature',geometry:ACTIVE_LAND.geojson,
       properties:{name:ACTIVE_LAND.name,area_m2:ACTIVE_LAND.area_m2||0}};
+  } else if(UP_POINTS&&UP_POINTS.length>=3){
+    // Solo si el lote NO tiene polígono guardado, usar el dibujado
+    var areaCalc=Math.round(calcAreaM2(UP_POINTS));
+    TERRENO_DEMO={type:'Feature',
+      geometry:{type:'Polygon',coordinates:[[...UP_POINTS,UP_POINTS[0]]]},
+      properties:{name:ACTIVE_LAND?ACTIVE_LAND.name:'Terreno dibujado',area_m2:areaCalc}};
+    if(ACTIVE_LAND){ACTIVE_LAND.geojson=TERRENO_DEMO.geometry;if(!ACTIVE_LAND.area_m2)ACTIVE_LAND.area_m2=areaCalc;}
   }
   // Reset completo antes de cada análisis
   APH='running';ATP=0;WLC_RESULT=null;
@@ -4465,15 +4466,22 @@ function setActiveLand(idx){
   var lands=USER_LANDS.length>0?USER_LANDS:(ACTIVE_LAND?[ACTIVE_LAND]:[]);
   if(!lands[idx])return;
   ACTIVE_LAND=lands[idx];
+  UP_POINTS=[]; // limpiar para usar el polígono real del lote seleccionado
   if(ACTIVE_LAND.geojson){
     TERRENO_DEMO={type:'Feature',geometry:ACTIVE_LAND.geojson,
       properties:{name:ACTIVE_LAND.name,area_m2:ACTIVE_LAND.area_m2||0}};
+  } else {
+    TERRENO_DEMO=null;
   }
   rMisTerrenos();
 }
 
 function setActiveLandAndAnalyze(idx){
   setActiveLand(idx);
+  // Reset total para que el nuevo lote no herede resultados del anterior
+  WLC_RESULT=null;
+  RLVM_CACHE=null;RLVM_CACHE_TIME=0;
+  UP_POINTS=[]; // limpiar polígono dibujado para usar el del lote guardado
   goTo('analysis');
   setTimeout(startAnalysis,400);
 }
@@ -4620,14 +4628,7 @@ function clearFileUpload(){
   var fa=document.getElementById('file-action-btns');if(fa)fa.style.display='none';
   var fi=document.querySelector('input[type=file][accept]');if(fi)fi.value='';
 }
-// ── setActiveLandAndAnalyze ──
-function setActiveLandAndAnalyze(idx){
-  var lands=USER_LANDS&&USER_LANDS.length>0?USER_LANDS:(ACTIVE_LAND?[ACTIVE_LAND]:[]);
-  var land=lands[idx];if(!land)return;
-  ACTIVE_LAND=land;
-  if(land.geojson)TERRENO_DEMO={type:'Feature',geometry:land.geojson,properties:{name:land.name,area_m2:land.area_m2}};
-  rAnalysis();
-}
+// ── setActiveLandAndAnalyze duplicada eliminada en VF10 (la válida está arriba y ejecuta startAnalysis) ──
 // ── saveAppConfig ──
 async function saveAppConfig(cfg){
   if(!CURRENT_USER||ROLE!=='admin')return false;
