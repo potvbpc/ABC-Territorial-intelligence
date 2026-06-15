@@ -39,7 +39,7 @@ select.inp option{background:#0E1E2E}
 .fa2{animation:fu .33s .14s ease both}
 </style>
 </head>
-<!-- VERSION-DEPLOY: VF12 — Propuestas por 5 sistemas urbanos (equipamiento, ambiente, energia, habitacional, productivo) con diversidad garantizada -->
+<!-- VERSION-DEPLOY: VF13 — Fix flujo KML: parser robusto + area automatica + poligono real del lote (no hereda anterior) -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -1638,11 +1638,43 @@ function processGeoFile(file){
       var geojson=null;
       if(ext==='geojson'||ext==='json'){geojson=JSON.parse(txt);}
       else if(ext==='kml'){
-        // Parse KML coordinates
-        var coords=txt.match(/<coordinates>([^<]+)<\/coordinates>/i);
-        if(coords){
-          var pts=coords[1].trim().split(/\s+/).map(function(c){var p=c.split(',');return[parseFloat(p[0]),parseFloat(p[1])];}).filter(function(p){return!isNaN(p[0])&&!isNaN(p[1]);});
-          if(pts.length>=3){geojson={type:'Feature',geometry:{type:'Polygon',coordinates:[pts]},properties:{}};}
+        // Parser KML robusto: maneja altitud (3er valor), saltos de línea,
+        // tabs, y toma el polígono más grande si hay varios
+        var allCoords=txt.match(/<coordinates>([\s\S]*?)<\/coordinates>/gi);
+        if(allCoords&&allCoords.length>0){
+          var mejorPts=[];
+          allCoords.forEach(function(block){
+            var raw=block.replace(/<\/?coordinates>/gi,'').trim();
+            // Separar por cualquier espacio en blanco (espacios, tabs, saltos)
+            var pts=raw.split(/[\s\n\r\t]+/).map(function(c){
+              var p=c.split(',');
+              return [parseFloat(p[0]),parseFloat(p[1])]; // ignora altitud (p[2])
+            }).filter(function(p){return !isNaN(p[0])&&!isNaN(p[1]);});
+            // Quedarse con el polígono de más vértices (el principal)
+            if(pts.length>mejorPts.length)mejorPts=pts;
+          });
+          if(mejorPts.length>=3){
+            // Cerrar el polígono si no está cerrado
+            var first=mejorPts[0],last=mejorPts[mejorPts.length-1];
+            if(first[0]!==last[0]||first[1]!==last[1])mejorPts.push([first[0],first[1]]);
+            geojson={type:'Feature',geometry:{type:'Polygon',coordinates:[mejorPts]},properties:{}};
+          }
+        }
+      }
+      else if(ext==='gpx'){
+        // GPX: extraer track points o waypoints
+        var gpxPts=[];
+        var trkpts=txt.match(/<(trkpt|rtept|wpt)[^>]*lat="([^"]+)"[^>]*lon="([^"]+)"/gi);
+        if(trkpts){
+          trkpts.forEach(function(tp){
+            var lat=tp.match(/lat="([^"]+)"/i),lon=tp.match(/lon="([^"]+)"/i);
+            if(lat&&lon)gpxPts.push([parseFloat(lon[1]),parseFloat(lat[1])]);
+          });
+          if(gpxPts.length>=3){
+            var f=gpxPts[0],l=gpxPts[gpxPts.length-1];
+            if(f[0]!==l[0]||f[1]!==l[1])gpxPts.push([f[0],f[1]]);
+            geojson={type:'Feature',geometry:{type:'Polygon',coordinates:[gpxPts]},properties:{}};
+          }
         }
       }
       if(geojson){
@@ -1654,9 +1686,12 @@ function processGeoFile(file){
         if(geom&&(geom.type==='Polygon'||geom.type==='MultiPolygon')){
           var coords=geom.type==='Polygon'?geom.coordinates[0]:geom.coordinates[0][0];
           UP_POINTS=coords.map(function(c){return[c[0],c[1]];});
+          // Guardar geometría normalizada para submitTerrain
+          window._loadedGeoJSON={type:'Polygon',coordinates:[UP_POINTS]};
           var areaM2=calcAreaM2(UP_POINTS);
-          var aInp=document.getElementById('land-area');if(aInp)aInp.value=Math.round(areaM2);
-          if(status)status.innerHTML='<div style="background:rgba(46,204,113,.1);border:1px solid rgba(46,204,113,.3);border-radius:8px;padding:11px 14px;font-size:12px;color:#2ECC71">✅ <strong>'+file.name+'</strong> cargado · Área calculada: <strong>'+Math.round(areaM2).toLocaleString()+' m²</strong> · '+UP_POINTS.length+' vértices</div>';
+          window._loadedArea=Math.round(areaM2);
+          var aInp=document.getElementById('land-area');if(aInp){aInp.value=Math.round(areaM2);aInp.dataset.fromFile='1';}
+          if(status)status.innerHTML='<div style="background:rgba(46,204,113,.1);border:1px solid rgba(46,204,113,.3);border-radius:8px;padding:11px 14px;font-size:12px;color:#2ECC71">✅ <strong>'+file.name+'</strong> cargado · Área calculada: <strong>'+Math.round(areaM2).toLocaleString()+' m²</strong> · '+(UP_POINTS.length-1)+' vértices · Listo para registrar</div>';
           status.style.display='block';
         }else{
           if(status)status.innerHTML='<div style="background:rgba(242,201,76,.1);border:1px solid rgba(242,201,76,.3);border-radius:8px;padding:11px 14px;font-size:12px;color:#F2C94C">⚠ Archivo cargado pero no contiene polígono reconocible. Verifica el formato.</div>';
@@ -1687,8 +1722,16 @@ async function submitTerrain(){
   var pts=(UP_POINTS&&UP_POINTS.length>=3)?UP_POINTS:[];
   var geojson=null,area=aInp;
   if(pts.length>=3){
-    geojson={type:'Polygon',coordinates:[pts.concat([pts[0]])]};area=Math.round(calcAreaM2(pts))||aInp;
-  }else if(window._loadedGeoJSON){geojson=window._loadedGeoJSON;}
+    // Cerrar polígono si hace falta
+    var p0=pts[0],pN=pts[pts.length-1];
+    var ring=(p0[0]===pN[0]&&p0[1]===pN[1])?pts.slice():pts.concat([p0]);
+    geojson={type:'Polygon',coordinates:[ring]};
+    var areaCalc=Math.round(calcAreaM2(pts));
+    area=areaCalc>0?areaCalc:(window._loadedArea||aInp);
+  }else if(window._loadedGeoJSON&&window._loadedGeoJSON.coordinates){
+    geojson=window._loadedGeoJSON;
+    if(window._loadedArea&&window._loadedArea>0)area=window._loadedArea;
+  }
   var saved=null;
   if(typeof SUPA!=='undefined'&&CURRENT_USER){
     var ins=await SUPA.from('lands').insert({
@@ -1704,6 +1747,8 @@ async function submitTerrain(){
     if(!CURRENT_USER)window._pendingLand=saved;
   }
   if(geojson)TERRENO_DEMO={type:'Feature',geometry:geojson,properties:{name:name,area_m2:area}};
+  // Limpiar estado del archivo cargado para no contaminar el próximo terreno
+  window._loadedGeoJSON=null;window._loadedArea=0;UP_POINTS=[];
   if(btn){btn.textContent='Registrar terreno';btn.style.opacity='1';btn.disabled=false;}
   buildNav();
   var isCloud=!!saved.id,needLogin=!CURRENT_USER;
@@ -4532,6 +4577,7 @@ function setActiveLand(idx){
   if(!lands[idx])return;
   ACTIVE_LAND=lands[idx];
   UP_POINTS=[]; // limpiar para usar el polígono real del lote seleccionado
+  window._loadedGeoJSON=null;window._loadedArea=0; // limpiar archivo cargado previo
   if(ACTIVE_LAND.geojson){
     TERRENO_DEMO={type:'Feature',geometry:ACTIVE_LAND.geojson,
       properties:{name:ACTIVE_LAND.name,area_m2:ACTIVE_LAND.area_m2||0}};
@@ -4546,7 +4592,11 @@ function setActiveLandAndAnalyze(idx){
   // Reset total para que el nuevo lote no herede resultados del anterior
   WLC_RESULT=null;
   RLVM_CACHE=null;RLVM_CACHE_TIME=0;
-  UP_POINTS=[]; // limpiar polígono dibujado para usar el del lote guardado
+  UP_POINTS=[];window._loadedGeoJSON=null;window._loadedArea=0;
+  // Sincronizar TERRENO_DEMO con el polígono REAL del lote seleccionado
+  if(ACTIVE_LAND&&ACTIVE_LAND.geojson&&ACTIVE_LAND.geojson.coordinates){
+    TERRENO_DEMO={type:'Feature',geometry:ACTIVE_LAND.geojson,properties:{name:ACTIVE_LAND.name,area_m2:ACTIVE_LAND.area_m2||0}};
+  }else{TERRENO_DEMO=null;}
   goTo('analysis');
   setTimeout(startAnalysis,400);
 }
