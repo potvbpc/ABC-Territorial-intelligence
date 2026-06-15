@@ -11,6 +11,7 @@
 <link href="https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.css" rel="stylesheet"/>
 <script src="https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js" onerror="window._turfFailed=true;console.warn('Turf.js no disponible — la detección de afectación ambiental queda inactiva, el resto funciona normal')"></script>
+<script src="https://cdn.jsdelivr.net/npm/shpjs@4.0.4/dist/shp.min.js" onerror="window._shpFailed=true;console.warn('shpjs no disponible — la carga de Shapefile queda inactiva, KML y GeoJSON funcionan normal')"></script>
 <style>.mapboxgl-ctrl-logo,.mapboxgl-ctrl-attrib{display:none!important}.abc-popup .mapboxgl-popup-content{background:transparent!important;padding:0!important;box-shadow:none!important;border:none!important}.abc-popup .mapboxgl-popup-tip{display:none!important}@keyframes abcspin{to{transform:rotate(360deg)}}
 </style>
 <style>
@@ -40,7 +41,7 @@ select.inp option{background:#0E1E2E}
 .fa2{animation:fu .33s .14s ease both}
 </style>
 </head>
-<!-- VERSION-DEPLOY: VF16 — Afectacion ambiental completa: interseccion real + alerta + propuestas condicionadas + panel carga capas -->
+<!-- VERSION-DEPLOY: VF17 — Gestor de capas reales completo (panel multi-formato + medicion geografica) -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -171,7 +172,7 @@ function goTo(p){
     PAGE='public'; buildNav(); render(); return;
   }
   // Admin-only pages
-  var adminOnly=['overview','layers','opps','pricing','users','commissions','settings','zones'];
+  var adminOnly=['overview','layers','opps','pricing','users','commissions','settings','zones','geolayers'];
   if(adminOnly.indexOf(p)>=0 && ROLE!=='admin'){
     PAGE='dashboard'; buildNav(); render(); return;
   }
@@ -184,7 +185,7 @@ function buildNav(){
   const isProp=ROLE==="propietario";
   const noAuth=!ROLE;
   const grp=isA
-    ?[{items:[{id:"overview",i:"⬛",l:"Admin Dashboard"},{id:"layers",i:"▧",l:"Capas del Motor"},{id:"opps",i:"🌐",l:"Oportunidades"},{id:"pricing",i:"💳",l:"Planes y Precios"},{id:"users",i:"👥",l:"Usuarios"},{id:"commissions",i:"💰",l:"Comisiones"},{id:"zones",i:"🛡",l:"Zonas de Restricción"},{id:"settings",i:"🎨",l:"Configuración"}]}]
+    ?[{items:[{id:"overview",i:"⬛",l:"Admin Dashboard"},{id:"layers",i:"▧",l:"Capas del Motor"},{id:"opps",i:"🌐",l:"Oportunidades"},{id:"pricing",i:"💳",l:"Planes y Precios"},{id:"users",i:"👥",l:"Usuarios"},{id:"commissions",i:"💰",l:"Comisiones"},{id:"geolayers",i:"🗺",l:"Capas Geográficas"},{id:"zones",i:"🛡",l:"Zonas de Restricción"},{id:"settings",i:"🎨",l:"Configuración"}]}]
     :noAuth
     ?[{title:null,items:[{id:"public",i:"🌍",l:"Portal Público"},{id:"login",i:"🔐",l:"Iniciar sesión"},{id:"register",i:"✨",l:"Crear cuenta gratis"}]}]
     :isInv
@@ -2855,6 +2856,7 @@ function render(){
     case "commissions": rCommissions();break;
     case "settings":    rSettings();     break;
     case "zones":       rZones();        break;
+    case "geolayers":   rGeoLayers();    break;
     case "register":    rRegister();     break;
     case "upload":      rUpload();       break;
     case "documents":   rDocuments();    break;
@@ -3470,6 +3472,155 @@ function buildDynamicGISLayers(){
   });
 }
 
+// ════════════════════════════════════════════════════════════════
+// MOTOR DE MEDICIÓN GEOGRÁFICA REAL (VF17)
+// Cruza el polígono del lote contra capas reales (geo_layers) según
+// el método de cada capa: proximidad / interseccion / densidad.
+// Degrada con elegancia si Turf no carga o no hay capas.
+// ════════════════════════════════════════════════════════════════
+var GEO_LAYERS_CACHE=null;
+
+async function loadGeoLayers(province){
+  if(GEO_LAYERS_CACHE)return GEO_LAYERS_CACHE;
+  try{
+    if(typeof SUPA==='undefined')return [];
+    var q=SUPA.from('geo_layers').select('*').eq('active',true);
+    var r=await q;
+    if(r.error){console.warn('geo_layers load:',r.error);return [];}
+    GEO_LAYERS_CACHE=r.data||[];
+    return GEO_LAYERS_CACHE;
+  }catch(e){console.warn('loadGeoLayers:',e);return [];}
+}
+
+// Centroide del lote como punto Turf
+function loteCentroide(landGeojson){
+  try{
+    var geom=(landGeojson.type==='Feature')?landGeojson.geometry:landGeojson;
+    var poly=turf.polygon(geom.coordinates);
+    return turf.centroid(poly);
+  }catch(e){return null;}
+}
+
+// MÉTODO PROXIMIDAD: distancia del lote al feature más cercano de la capa
+// Devuelve score 0-100 (más cerca del óptimo = más alto)
+function medirProximidad(landPoly, landCentroid, layer){
+  try{
+    var fc=layer.features;
+    if(!fc||!fc.features||fc.features.length===0)return null;
+    var minDist=Infinity;
+    fc.features.forEach(function(f){
+      try{
+        var d;
+        var gt=f.geometry&&f.geometry.type;
+        if(gt==='Point'){
+          d=turf.distance(landCentroid,f,{units:'meters'});
+        } else if(gt==='LineString'||gt==='MultiLineString'){
+          d=turf.pointToLineDistance(landCentroid,f,{units:'meters'});
+        } else if(gt==='Polygon'||gt==='MultiPolygon'){
+          // Si el lote está dentro del polígono, distancia 0
+          if(turf.booleanPointInPolygon(landCentroid,f))d=0;
+          else{
+            var line=turf.polygonToLine(f);
+            d=turf.pointToLineDistance(landCentroid,line.type==='FeatureCollection'?line.features[0]:line,{units:'meters'});
+          }
+        } else return;
+        if(d<minDist)minDist=d;
+      }catch(e){}
+    });
+    if(minDist===Infinity)return null;
+    // Mapear distancia a score: óptimo→100, máximo→20
+    var opt=layer.optimal_dist_m||300, max=layer.max_dist_m||3000;
+    var score;
+    if(minDist<=opt)score=100;
+    else if(minDist>=max)score=20;
+    else score=Math.round(100-((minDist-opt)/(max-opt))*80);
+    return {score:Math.max(0,Math.min(100,score)),dist:Math.round(minDist)};
+  }catch(e){console.warn('medirProximidad:',e);return null;}
+}
+
+// MÉTODO INTERSECCIÓN: si el polígono toca la zona (ambiental)
+function medirInterseccion(landPoly, layer){
+  try{
+    var fc=layer.features;
+    if(!fc||!fc.features)return null;
+    var tocado=false,pctMax=0;
+    var areaLote=turf.area(landPoly);
+    fc.features.forEach(function(f){
+      try{
+        if(turf.booleanIntersects(landPoly,f)){
+          tocado=true;
+          try{
+            var inter=null;
+            try{inter=turf.intersect(turf.featureCollection([landPoly,f]));}
+            catch(e7){try{inter=turf.intersect(landPoly,f);}catch(e6){}}
+            if(inter&&areaLote>0){var p=Math.round((turf.area(inter)/areaLote)*100);if(p>pctMax)pctMax=p;}
+          }catch(e){}
+        }
+      }catch(e){}
+    });
+    if(!tocado)return {score:100,pct:0}; // no toca = sin restricción
+    // Toca: score bajo según severidad
+    var sevScore={critica:5,condicionada:35,riesgo:55};
+    return {score:sevScore[layer.severity]||40,pct:pctMax,tocado:true,severity:layer.severity};
+  }catch(e){console.warn('medirInterseccion:',e);return null;}
+}
+
+// MÉTODO DENSIDAD: cuántos features de la capa hay en un radio del lote
+function medirDensidad(landCentroid, layer){
+  try{
+    var fc=layer.features;
+    if(!fc||!fc.features)return null;
+    var radio=(layer.max_dist_m||3000);
+    var count=0;
+    fc.features.forEach(function(f){
+      try{
+        var d;
+        var gt=f.geometry&&f.geometry.type;
+        if(gt==='Point')d=turf.distance(landCentroid,f,{units:'meters'});
+        else{var c=turf.centroid(f);d=turf.distance(landCentroid,c,{units:'meters'});}
+        if(d<=radio)count++;
+      }catch(e){}
+    });
+    // Mapear densidad a score: 0→30, 1→55, 2→70, 3→82, 4→90, 5+→100
+    var score=count===0?30:count===1?55:count===2?70:count===3?82:count===4?90:100;
+    return {score:score,count:count};
+  }catch(e){console.warn('medirDensidad:',e);return null;}
+}
+
+// Calcular métricas reales de TODAS las capas para un lote
+async function medirCapasReales(landGeojson, province){
+  var resultado={disponible:false,capas:[],ambiental:null};
+  try{
+    if(window._turfFailed||typeof turf==='undefined')return resultado;
+    if(!landGeojson||!landGeojson.coordinates)return resultado;
+    var layers=await loadGeoLayers(province);
+    if(!layers||layers.length===0)return resultado; // sin capas → motor usa promedios
+
+    var geom=(landGeojson.type==='Feature')?landGeojson.geometry:landGeojson;
+    var landPoly=turf.polygon(geom.coordinates);
+    var landCentroid=turf.centroid(landPoly);
+
+    layers.forEach(function(layer){
+      // Filtrar por provincia si la capa la especifica
+      if(layer.province&&province&&layer.province!==province)return;
+      var medida=null;
+      if(layer.measure_method==='proximidad')medida=medirProximidad(landPoly,landCentroid,layer);
+      else if(layer.measure_method==='interseccion')medida=medirInterseccion(landPoly,layer);
+      else if(layer.measure_method==='densidad')medida=medirDensidad(landCentroid,layer);
+      if(medida&&medida.score!==null&&medida.score!==undefined){
+        resultado.capas.push({
+          name:layer.name,dimension:layer.dimension,subtype:layer.subtype,
+          method:layer.measure_method,weight:layer.weight||0.05,
+          score:medida.score,dist:medida.dist,count:medida.count,
+          pct:medida.pct,tocado:medida.tocado,severity:medida.severity
+        });
+      }
+    });
+    resultado.disponible=resultado.capas.length>0;
+  }catch(e){console.warn('medirCapasReales:',e);}
+  return resultado;
+}
+
 async function fetchGisMetrics(){
   var land=ACTIVE_LAND;
   var province=(land&&land.province)||'La Altagracia';
@@ -3552,6 +3703,46 @@ async function fetchGisMetrics(){
       area_protegida:   {raw:cap(s.prot),         desc:'SINAP · '+province},
     };
   }
+
+  // ── VF17: Sobrescribir con MEDICIONES REALES si hay capas geográficas ──
+  try{
+    var geomLote=(land&&land.geojson)?land.geojson:(TERRENO_DEMO?TERRENO_DEMO.geometry:null);
+    if(geomLote){
+      var reales=await medirCapasReales(geomLote,province);
+      if(reales&&reales.disponible){
+        // Agrupar capas reales por dimensión y promediar su score
+        var porDim={};
+        reales.capas.forEach(function(c){
+          if(!porDim[c.dimension])porDim[c.dimension]={sum:0,n:0,detalles:[]};
+          porDim[c.dimension].sum+=c.score;porDim[c.dimension].n++;
+          porDim[c.dimension].detalles.push(c);
+        });
+        // Mapear dimensiones reales a los IDs de métricas del motor
+        var dimToMetric={
+          movilidad:'accesibilidad', equipamiento:'servicios_basicos',
+          infraestructura:'servicios_basicos', mercado:'mercado',
+          ambiental:'area_protegida'
+        };
+        Object.keys(porDim).forEach(function(dim){
+          var prom=Math.round(porDim[dim].sum/porDim[dim].n);
+          var mid=dimToMetric[dim];
+          var det=porDim[dim].detalles.map(function(d){
+            return d.name+(d.dist!==undefined?' ('+d.dist+'m)':d.count!==undefined?' ('+d.count+' cercanos)':'');
+          }).join(', ');
+          if(mid&&metrics[mid]){
+            metrics[mid]={raw:prom,desc:'📡 Medición real · '+det,layer:metrics[mid].layer,real:true};
+          }
+          // También crear una métrica específica para esta dimensión real
+          metrics['real_'+dim]={raw:prom,desc:'📡 '+dim+' (capas reales) · '+det,real:true};
+        });
+        // Guardar para que el resto del análisis lo use (afectación, propuestas)
+        window._medicionReal=reales;
+      } else {
+        window._medicionReal=null;
+      }
+    }
+  }catch(e){console.warn('medicion real integracion:',e);}
+
   return metrics;
 }
 
@@ -3994,6 +4185,169 @@ function generarPropuestasProyecto(r){
 // PANEL ADMIN — ZONAS DE RESTRICCIÓN (carga de capas MIMARENA) VF16
 // ════════════════════════════════════════════════════════════════
 var ZONES_LIST=[];
+var GEOLAYERS_LIST=[];
+async function rGeoLayers(){
+  var pt=document.getElementById('page-title');if(pt)pt.textContent='Capas Geográficas';
+  var con=document.getElementById('content');
+  var degraded='';
+  if(window._turfFailed)degraded+='<div style="background:rgba(231,126,34,.1);border:1px solid rgba(231,126,34,.3);border-radius:8px;padding:10px 14px;font-size:11px;color:#E67E22;margin-bottom:12px">⚠ Turf.js no se cargó. La medición geográfica está inactiva hasta recargar con conexión.</div>';
+  if(window._shpFailed)degraded+='<div style="background:rgba(231,126,34,.1);border:1px solid rgba(231,126,34,.3);border-radius:8px;padding:10px 14px;font-size:11px;color:#E67E22;margin-bottom:12px">⚠ shpjs no se cargó. Puedes usar KML/GeoJSON; Shapefile queda inactivo.</div>';
+  con.innerHTML='<div style="max-width:1050px;margin:0 auto">'
+    +degraded
+    +'<div style="background:'+C.c1+';border:1px solid '+C.bd+';border-radius:14px;padding:22px;margin-bottom:18px">'
+      +'<div style="font-size:14px;font-weight:800;color:'+C.tx+';margin-bottom:6px">🗺 Cargar nueva capa geográfica</div>'
+      +'<div style="font-size:11px;color:'+C.tm+';margin-bottom:16px">Sube KML, GeoJSON o Shapefile (.zip). El motor cruzará cada capa con el polígono de los lotes según su método de medición.</div>'
+      +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">'
+        +'<div><div style="font-size:9px;color:'+C.tm+';font-weight:700;text-transform:uppercase;margin-bottom:4px">Nombre de la capa</div><input id="gl-name" placeholder="Ej: Vías principales RD" style="width:100%;background:rgba(255,255,255,.06);border:1px solid '+C.bd+';color:'+C.tx+';padding:10px 12px;border-radius:8px;font-size:13px"/></div>'
+        +'<div><div style="font-size:9px;color:'+C.tm+';font-weight:700;text-transform:uppercase;margin-bottom:4px">Dimensión</div><select id="gl-dim" onchange="_glDimChanged()" style="width:100%;background:#0E1E2E;border:1px solid '+C.bd+';color:'+C.tx+';padding:10px 12px;border-radius:8px;font-size:13px"><option value="movilidad">🛣 Movilidad y accesibilidad</option><option value="equipamiento">🏥 Equipamiento urbano</option><option value="infraestructura">💧 Infraestructura y servicios</option><option value="mercado">📈 Mercado y economía</option><option value="ambiental">🛡 Ambiental y riesgo</option></select></div>'
+      +'</div>'
+      +'<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:14px">'
+        +'<div><div style="font-size:9px;color:'+C.tm+';font-weight:700;text-transform:uppercase;margin-bottom:4px">Subtipo</div><input id="gl-sub" placeholder="Ej: vias_principales" style="width:100%;background:rgba(255,255,255,.06);border:1px solid '+C.bd+';color:'+C.tx+';padding:10px 12px;border-radius:8px;font-size:13px"/></div>'
+        +'<div><div style="font-size:9px;color:'+C.tm+';font-weight:700;text-transform:uppercase;margin-bottom:4px">Método de medición</div><select id="gl-method" style="width:100%;background:#0E1E2E;border:1px solid '+C.bd+';color:'+C.tx+';padding:10px 12px;border-radius:8px;font-size:13px"><option value="proximidad">Proximidad (distancia)</option><option value="interseccion">Intersección (toca/no toca)</option><option value="densidad">Densidad (cuántos cerca)</option></select></div>'
+        +'<div><div style="font-size:9px;color:'+C.tm+';font-weight:700;text-transform:uppercase;margin-bottom:4px">Peso WLC (0-1)</div><input id="gl-weight" type="number" step="0.01" value="0.05" style="width:100%;background:rgba(255,255,255,.06);border:1px solid '+C.bd+';color:'+C.tx+';padding:10px 12px;border-radius:8px;font-size:13px"/></div>'
+      +'</div>'
+      +'<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:14px">'
+        +'<div><div style="font-size:9px;color:'+C.tm+';font-weight:700;text-transform:uppercase;margin-bottom:4px">Dist. óptima (m)</div><input id="gl-opt" type="number" value="300" style="width:100%;background:rgba(255,255,255,.06);border:1px solid '+C.bd+';color:'+C.tx+';padding:10px 12px;border-radius:8px;font-size:13px"/></div>'
+        +'<div><div style="font-size:9px;color:'+C.tm+';font-weight:700;text-transform:uppercase;margin-bottom:4px">Dist. máxima (m)</div><input id="gl-max" type="number" value="3000" style="width:100%;background:rgba(255,255,255,.06);border:1px solid '+C.bd+';color:'+C.tx+';padding:10px 12px;border-radius:8px;font-size:13px"/></div>'
+        +'<div id="gl-sev-wrap" style="display:none"><div style="font-size:9px;color:'+C.tm+';font-weight:700;text-transform:uppercase;margin-bottom:4px">Severidad (ambiental)</div><select id="gl-sev" style="width:100%;background:#0E1E2E;border:1px solid '+C.bd+';color:'+C.tx+';padding:10px 12px;border-radius:8px;font-size:13px"><option value="critica">Crítica</option><option value="condicionada">Condicionada</option><option value="riesgo">Riesgo</option></select></div>'
+      +'</div>'
+      +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">'
+        +'<div><div style="font-size:9px;color:'+C.tm+';font-weight:700;text-transform:uppercase;margin-bottom:4px">Fuente</div><input id="gl-src" placeholder="MOPC / MIMARENA / ONE / OSM" style="width:100%;background:rgba(255,255,255,.06);border:1px solid '+C.bd+';color:'+C.tx+';padding:10px 12px;border-radius:8px;font-size:13px"/></div>'
+        +'<div><div style="font-size:9px;color:'+C.tm+';font-weight:700;text-transform:uppercase;margin-bottom:4px">Provincia (opcional)</div><input id="gl-prov" placeholder="Vacío = todo el país" style="width:100%;background:rgba(255,255,255,.06);border:1px solid '+C.bd+';color:'+C.tx+';padding:10px 12px;border-radius:8px;font-size:13px"/></div>'
+      +'</div>'
+      +'<div style="margin-bottom:14px"><div style="font-size:9px;color:'+C.tm+';font-weight:700;text-transform:uppercase;margin-bottom:4px">Archivo (KML / GeoJSON / Shapefile .zip)</div><input type="file" id="gl-file" accept=".kml,.geojson,.json,.zip" style="width:100%;background:rgba(255,255,255,.06);border:1px solid '+C.bd+';color:'+C.tx+';padding:10px 12px;border-radius:8px;font-size:12px"/></div>'
+      +'<div id="gl-status" style="display:none;margin-bottom:14px"></div>'
+      +'<button onclick="cargarGeoLayer()" style="background:linear-gradient(135deg,#1565C0,#0D47A1);color:white;padding:11px 26px;border-radius:9px;font-size:13px;font-weight:700;border:none;cursor:pointer">Cargar capa al sistema</button>'
+    +'</div>'
+    +'<div id="gl-list" style="background:'+C.c1+';border:1px solid '+C.bd+';border-radius:14px;padding:22px"><div style="color:'+C.tm+';font-size:12px">Cargando capas...</div></div>'
+  +'</div>';
+  _glDimChanged();
+  cargarListaGeoLayers();
+}
+
+function _glDimChanged(){
+  var dim=document.getElementById('gl-dim').value;
+  var method=document.getElementById('gl-method');
+  var sevWrap=document.getElementById('gl-sev-wrap');
+  if(dim==='ambiental'){method.value='interseccion';sevWrap.style.display='block';}
+  else if(dim==='mercado'){method.value='densidad';sevWrap.style.display='none';}
+  else{method.value='proximidad';sevWrap.style.display='none';}
+}
+
+async function cargarListaGeoLayers(){
+  var cont=document.getElementById('gl-list');if(!cont)return;
+  try{
+    var r=await SUPA.from('geo_layers').select('id,name,dimension,subtype,measure_method,geometry_type,feature_count,source,province,active').order('created_at',{ascending:false});
+    if(r.error)throw r.error;
+    GEOLAYERS_LIST=r.data||[];
+    if(GEOLAYERS_LIST.length===0){cont.innerHTML='<div style="text-align:center;padding:30px;color:'+C.tm+';font-size:12px">No hay capas geográficas cargadas. Sube la primera para que el motor mida distancias reales.</div>';return;}
+    var dimN={movilidad:'🛣 Movilidad',equipamiento:'🏥 Equipamiento',infraestructura:'💧 Infraestructura',mercado:'📈 Mercado',ambiental:'🛡 Ambiental'};
+    var rows=GEOLAYERS_LIST.map(function(l){
+      return '<tr style="border-bottom:1px solid '+C.bd+'">'
+        +'<td style="padding:10px 8px;color:'+C.tx+';font-weight:600">'+l.name+'</td>'
+        +'<td style="padding:10px 8px;color:'+C.tm+'">'+(dimN[l.dimension]||l.dimension)+'</td>'
+        +'<td style="padding:10px 8px;color:'+C.tm+'">'+l.measure_method+'</td>'
+        +'<td style="padding:10px 8px;color:'+C.tm+'">'+(l.geometry_type||'—')+'</td>'
+        +'<td style="padding:10px 8px;color:'+C.tm+';text-align:center">'+(l.feature_count||0)+'</td>'
+        +'<td style="padding:10px 8px;color:'+C.tm+'">'+(l.province||'Nacional')+'</td>'
+        +'<td style="padding:10px 8px;text-align:right"><button onclick="eliminarGeoLayer(\''+l.id+'\')" style="background:rgba(231,76,60,.1);border:1px solid rgba(231,76,60,.3);color:#E74C3C;padding:5px 12px;border-radius:7px;font-size:11px;cursor:pointer">Eliminar</button></td>'
+      +'</tr>';
+    }).join('');
+    cont.innerHTML='<div style="font-size:14px;font-weight:800;color:'+C.tx+';margin-bottom:14px">🗺 Capas cargadas ('+GEOLAYERS_LIST.length+')</div>'
+      +'<table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="border-bottom:2px solid '+C.bd+'"><th style="text-align:left;padding:8px;color:'+C.tm+';font-size:10px;text-transform:uppercase">Capa</th><th style="text-align:left;padding:8px;color:'+C.tm+';font-size:10px;text-transform:uppercase">Dimensión</th><th style="text-align:left;padding:8px;color:'+C.tm+';font-size:10px;text-transform:uppercase">Método</th><th style="text-align:left;padding:8px;color:'+C.tm+';font-size:10px;text-transform:uppercase">Geometría</th><th style="text-align:center;padding:8px;color:'+C.tm+';font-size:10px;text-transform:uppercase">Features</th><th style="text-align:left;padding:8px;color:'+C.tm+';font-size:10px;text-transform:uppercase">Ámbito</th><th></th></tr></thead><tbody>'+rows+'</tbody></table>';
+  }catch(e){cont.innerHTML='<div style="color:#E74C3C;font-size:12px">Error: '+(e.message||'')+'<br><span style="color:'+C.tm+'">¿Ejecutaste ABC_Supabase_GEO_LAYERS.sql?</span></div>';}
+}
+
+async function cargarGeoLayer(){
+  var name=document.getElementById('gl-name').value.trim();
+  var dim=document.getElementById('gl-dim').value;
+  var sub=document.getElementById('gl-sub').value.trim();
+  var method=document.getElementById('gl-method').value;
+  var weight=parseFloat(document.getElementById('gl-weight').value)||0.05;
+  var opt=parseInt(document.getElementById('gl-opt').value)||300;
+  var max=parseInt(document.getElementById('gl-max').value)||3000;
+  var sev=document.getElementById('gl-sev')?document.getElementById('gl-sev').value:null;
+  var src=document.getElementById('gl-src').value.trim();
+  var prov=document.getElementById('gl-prov').value.trim();
+  var fileInp=document.getElementById('gl-file');
+  var status=document.getElementById('gl-status');
+  function showStatus(msg,color){status.style.display='block';var col=color==='red'?'231,76,60':color==='green'?'46,204,113':'242,201,76';var tcol=color==='red'?'#E74C3C':color==='green'?'#2ECC71':'#F2C94C';status.innerHTML='<div style="background:rgba('+col+',.1);border:1px solid rgba('+col+',.3);border-radius:8px;padding:11px 14px;font-size:12px;color:'+tcol+'">'+msg+'</div>';}
+  if(!name){showStatus('⚠ El nombre es obligatorio.','red');return;}
+  if(!fileInp.files||!fileInp.files[0]){showStatus('⚠ Selecciona un archivo.','red');return;}
+  var file=fileInp.files[0];
+  var ext=file.name.split('.').pop().toLowerCase();
+  showStatus('Procesando archivo...','yellow');
+  try{
+    var fc=null;
+    if(ext==='zip'){
+      if(window._shpFailed||typeof shp==='undefined'){showStatus('⚠ shpjs no disponible para Shapefile.','red');return;}
+      var buf=await file.arrayBuffer();
+      var geo=await shp(buf);
+      fc=(geo.type==='FeatureCollection')?geo:(Array.isArray(geo)?{type:'FeatureCollection',features:geo.reduce(function(a,g){return a.concat(g.features||[]);},[])}:geo);
+    } else {
+      var txt=await file.text();
+      if(ext==='geojson'||ext==='json'){
+        var parsed=JSON.parse(txt);
+        fc=(parsed.type==='FeatureCollection')?parsed:(parsed.type==='Feature'?{type:'FeatureCollection',features:[parsed]}:{type:'FeatureCollection',features:[{type:'Feature',geometry:parsed,properties:{}}]});
+      } else if(ext==='kml'){
+        fc=parseKMLtoFC(txt);
+      }
+    }
+    if(!fc||!fc.features||fc.features.length===0){showStatus('⚠ No se extrajeron geometrías válidas del archivo.','red');return;}
+    // Detectar tipo de geometría dominante
+    var gtype='polygon';
+    var first=fc.features.find(function(f){return f.geometry;});
+    if(first){var t=first.geometry.type;gtype=(t.indexOf('Point')>=0)?'point':(t.indexOf('Line')>=0)?'line':'polygon';}
+    showStatus('Guardando '+fc.features.length+' geometrías...','yellow');
+    var payload={name:name,dimension:dim,subtype:sub||null,measure_method:method,geometry_type:gtype,optimal_dist_m:opt,max_dist_m:max,weight:weight,source:src||null,province:prov||null,features:fc,feature_count:fc.features.length,active:true};
+    if(dim==='ambiental'&&sev)payload.severity=sev;
+    var ins=await SUPA.from('geo_layers').insert(payload);
+    if(ins.error)throw ins.error;
+    showStatus('✓ Capa «'+name+'» cargada ('+fc.features.length+' geometrías).','green');
+    document.getElementById('gl-name').value='';document.getElementById('gl-sub').value='';fileInp.value='';
+    GEO_LAYERS_CACHE=null;
+    cargarListaGeoLayers();
+  }catch(err){console.error('cargarGeoLayer:',err);showStatus('Error: '+(err.message||'no se pudo procesar'),'red');}
+}
+
+// Parser KML → FeatureCollection (soporta Point, LineString, Polygon)
+function parseKMLtoFC(txt){
+  var features=[];
+  var placemarks=txt.match(/<Placemark[\s\S]*?<\/Placemark>/gi)||[txt];
+  placemarks.forEach(function(pm){
+    var nameM=pm.match(/<name>([^<]*)<\/name>/i);
+    var pname=nameM?nameM[1]:'';
+    // Polygon
+    var polyM=pm.match(/<Polygon[\s\S]*?<coordinates>([\s\S]*?)<\/coordinates>/i);
+    var lineM=pm.match(/<LineString[\s\S]*?<coordinates>([\s\S]*?)<\/coordinates>/i);
+    var pointM=pm.match(/<Point[\s\S]*?<coordinates>([\s\S]*?)<\/coordinates>/i);
+    function parseCoords(raw){
+      return raw.trim().split(/[\s\n\r\t]+/).map(function(c){var p=c.split(',');return[parseFloat(p[0]),parseFloat(p[1])];}).filter(function(p){return!isNaN(p[0])&&!isNaN(p[1]);});
+    }
+    if(polyM){
+      var pts=parseCoords(polyM[1]);
+      if(pts.length>=3){var f=pts[0],l=pts[pts.length-1];if(f[0]!==l[0]||f[1]!==l[1])pts.push([f[0],f[1]]);features.push({type:'Feature',geometry:{type:'Polygon',coordinates:[pts]},properties:{name:pname}});}
+    } else if(lineM){
+      var lpts=parseCoords(lineM[1]);
+      if(lpts.length>=2)features.push({type:'Feature',geometry:{type:'LineString',coordinates:lpts},properties:{name:pname}});
+    } else if(pointM){
+      var ppts=parseCoords(pointM[1]);
+      if(ppts.length>=1)features.push({type:'Feature',geometry:{type:'Point',coordinates:ppts[0]},properties:{name:pname}});
+    }
+  });
+  return {type:'FeatureCollection',features:features};
+}
+
+async function eliminarGeoLayer(id){
+  if(!confirm('¿Eliminar esta capa geográfica?'))return;
+  try{
+    var del=await SUPA.from('geo_layers').delete().eq('id',id);
+    if(del.error)throw del.error;
+    GEO_LAYERS_CACHE=null;
+    cargarListaGeoLayers();
+  }catch(e){alert('No se pudo eliminar: '+(e.message||''));}
+}
+
 async function rZones(){
   var pt=document.getElementById('page-title');if(pt)pt.textContent='Zonas de Restricción';
   var con=document.getElementById('content');
