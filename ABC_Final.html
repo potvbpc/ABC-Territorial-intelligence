@@ -41,7 +41,7 @@ select.inp option{background:#0E1E2E}
 .fa2{animation:fu .33s .14s ease both}
 </style>
 </head>
-<!-- VERSION-DEPLOY: VF23 — Correccion de valores inflados: precios de venta realistas + multiplicadores suavizados -->
+<!-- VERSION-DEPLOY: VF24 — Deteccion robusta: normaliza cualquier geometria (Polygon/MultiPolygon/anidamiento) -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -3818,6 +3818,36 @@ async function loadRestrictionZones(province){
   }catch(e){console.warn('loadRestrictionZones:',e);return [];}
 }
 
+// Normaliza cualquier geometría a un polígono Turf válido, detectando
+// el tipo por la profundidad real del anidamiento (no solo por .type).
+// Maneja Polygon, MultiPolygon y anidamientos irregulares. VF24.
+function geomToTurfPoly(geometry){
+  if(!geometry||!geometry.coordinates)return null;
+  var c=geometry.coordinates;
+  var t=geometry.type;
+  try{
+    // Medir profundidad de anidamiento contando arrays hasta llegar a un número
+    function depth(a){var d=0;var x=a;while(Array.isArray(x)){d++;x=x[0];}return d;}
+    var dp=depth(c);
+    // Polygon: profundidad 3 ([anillos][puntos][x,y])
+    // MultiPolygon: profundidad 4 ([polígonos][anillos][puntos][x,y])
+    if(t==='MultiPolygon'||dp===4){
+      return turf.multiPolygon(c);
+    } else if(t==='Polygon'||dp===3){
+      return turf.polygon(c);
+    } else if(dp===2){
+      // Es un solo anillo sin envolver: [[x,y],[x,y]...] → envolver como Polygon
+      return turf.polygon([c]);
+    }
+  }catch(e){
+    // Último intento: probar ambas firmas
+    try{return turf.multiPolygon(c);}catch(e1){}
+    try{return turf.polygon(c);}catch(e2){}
+    try{return turf.polygon([c]);}catch(e3){}
+  }
+  return null;
+}
+
 async function detectarAfectacion(landGeojson, province){
   // Devuelve {afectado, conflictos:[{name,zone_type,severity,source,pct,notes}], maxSeveridad}
   var resultado={afectado:false,conflictos:[],maxSeveridad:null,pctTotal:0};
@@ -3837,12 +3867,13 @@ async function detectarAfectacion(landGeojson, province){
     }
     console.log('[Afectación] Analizando lote contra',ambientales.length,'capas ambientales y',(zones||[]).length,'zonas');
 
-    // Normalizar el polígono del lote a Feature de Turf
+    // Normalizar el polígono del lote a Feature de Turf (robusto)
     var landPoly;
     try{
       var geom=(landGeojson.type==='Feature')?landGeojson.geometry:landGeojson;
-      landPoly=turf.polygon(geom.coordinates);
-    }catch(e){console.warn('land poly invalida:',e);return resultado;}
+      landPoly=geomToTurfPoly(geom);
+      if(!landPoly){console.warn('[Afectación] No se pudo construir el polígono del lote');return resultado;}
+    }catch(e){console.warn('[Afectación] land poly invalida:',e);return resultado;}
 
     var areaLote=0;
     try{areaLote=turf.area(landPoly);}catch(e){}
@@ -3871,26 +3902,25 @@ async function detectarAfectacion(landGeojson, province){
 
     // Procesar restriction_zones (un polígono por fila en .geojson)
     (zones||[]).forEach(function(z){
-      if(!z.geojson||!z.geojson.coordinates)return;
-      var zonePoly;
-      try{zonePoly=(z.geojson.type==='MultiPolygon')?turf.multiPolygon(z.geojson.coordinates):turf.polygon(z.geojson.coordinates);}catch(e){return;}
-      probarZona(zonePoly,z.name,z.zone_type,z.severity,z.source);
+      if(!z.geojson)return;
+      var zonePoly=geomToTurfPoly(z.geojson.type?z.geojson:{type:'Polygon',coordinates:z.geojson.coordinates});
+      if(zonePoly)probarZona(zonePoly,z.name,z.zone_type,z.severity,z.source);
     });
 
     // Procesar geo_layers ambientales (FeatureCollection en .features, varios polígonos)
+    var totalFeatures=0,featuresProcesados=0;
     ambientales.forEach(function(layer){
       var fc=layer.features;
       if(!fc||!fc.features)return;
       var sev=layer.severity||'critica';
       fc.features.forEach(function(f){
-        if(!f.geometry||!f.geometry.coordinates)return;
-        var zonePoly;
-        try{
-          zonePoly=(f.geometry.type==='MultiPolygon')?turf.multiPolygon(f.geometry.coordinates):turf.polygon(f.geometry.coordinates);
-        }catch(e){return;}
-        probarZona(zonePoly,layer.name,layer.subtype||'area_protegida',sev,layer.source);
+        if(!f.geometry)return;
+        totalFeatures++;
+        var zonePoly=geomToTurfPoly(f.geometry);
+        if(zonePoly){featuresProcesados++;probarZona(zonePoly,layer.name,layer.subtype||'area_protegida',sev,layer.source);}
       });
     });
+    console.log('[Afectación] Geometrías procesadas:',featuresProcesados,'de',totalFeatures);
 
     resultado.afectado=resultado.conflictos.length>0;
     console.log('[Afectación] Resultado:',resultado.afectado?('⚠ AFECTADO - '+resultado.conflictos.length+' conflictos, severidad '+resultado.maxSeveridad):'sin afectación detectada');
