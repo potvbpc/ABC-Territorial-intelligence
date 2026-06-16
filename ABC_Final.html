@@ -41,7 +41,7 @@ select.inp option{background:#0E1E2E}
 .fa2{animation:fu .33s .14s ease both}
 </style>
 </head>
-<!-- VERSION-DEPLOY: VF24 — Deteccion robusta: normaliza cualquier geometria (Polygon/MultiPolygon/anidamiento) -->
+<!-- VERSION-DEPLOY: VF25 — Auditor de afectacion: diagnostico de cadena completa con datos reales -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -4249,6 +4249,100 @@ function generarPropuestasProyecto(r){
 // ════════════════════════════════════════════════════════════════
 var ZONES_LIST=[];
 var GEOLAYERS_LIST=[];
+
+// ════════════════════════════════════════════════════════════════
+// AUDITOR DE AFECTACIÓN — prueba toda la cadena con datos reales VF25
+// ════════════════════════════════════════════════════════════════
+async function diagnosticarAfectacion(){
+  var out=document.getElementById('diag-out');
+  if(out){out.style.display='block';out.innerHTML='<div style="color:#F2C94C">Ejecutando diagnóstico...</div>';}
+  var log=[];
+  function add(estado,msg){log.push({estado:estado,msg:msg});}
+  try{
+    // 1. Turf disponible
+    if(window._turfFailed||typeof turf==='undefined'){add('error','Turf.js NO está cargado. Sin él no hay cruce geográfico.');render();return;}
+    add('ok','Turf.js cargado correctamente.');
+
+    // 2. Cargar capas ambientales
+    GEO_AMBIENTAL_CACHE=null;
+    var ambientales=await loadGeoLayersAmbientales();
+    if(!ambientales||ambientales.length===0){
+      add('error','No se cargaron capas ambientales. Verifica que la capa tenga dimension="ambiental" Y measure_method="interseccion".');
+      // Verificar qué hay realmente
+      var todas=await SUPA.from('geo_layers').select('name,dimension,measure_method,active');
+      if(todas.data){add('info','Capas en BD: '+todas.data.map(function(l){return l.name+' [dim='+l.dimension+', metodo='+l.measure_method+', activa='+l.active+']';}).join(' | '));}
+      render();return;
+    }
+    add('ok','Capas ambientales cargadas: '+ambientales.length);
+    ambientales.forEach(function(l){
+      var nf=(l.features&&l.features.features)?l.features.features.length:0;
+      add(nf>0?'ok':'error','Capa "'+l.name+'": '+nf+' geometrías en el campo features'+(nf===0?' — ¡VACÍA! El archivo no guardó geometría.':''));
+      // Verificar primer feature
+      if(nf>0){
+        var f0=l.features.features[0];
+        var gt=f0.geometry?f0.geometry.type:'sin geometry';
+        add('info','  Primer feature: tipo='+gt);
+        var poly=geomToTurfPoly(f0.geometry);
+        add(poly?'ok':'error','  Normalización a Turf: '+(poly?'OK':'FALLÓ'));
+        if(poly){
+          try{var a=turf.area(poly);add('info','  Área del primer polígono: '+Math.round(a).toLocaleString()+' m²');}catch(e){add('error','  No se pudo calcular área: '+e.message);}
+        }
+      }
+    });
+
+    // 3. Verificar el lote activo
+    if(!ACTIVE_LAND){add('error','No hay terreno activo seleccionado. Selecciona un lote primero.');render();return;}
+    add('ok','Terreno activo: "'+ACTIVE_LAND.name+'"');
+    var geomLote=(ACTIVE_LAND&&ACTIVE_LAND.geojson)?ACTIVE_LAND.geojson:null;
+    if(!geomLote||!geomLote.coordinates){
+      add('error','El terreno activo NO tiene polígono guardado (geojson vacío). Sin polígono no hay nada que cruzar. Carga sus límites con un KML.');
+      render();return;
+    }
+    add('ok','El terreno tiene polígono guardado.');
+    var landPoly=geomToTurfPoly(geomLote);
+    if(!landPoly){add('error','El polígono del lote no se pudo normalizar.');render();return;}
+    add('ok','Polígono del lote normalizado.');
+    try{
+      var aLote=turf.area(landPoly);
+      add('info','Área del lote: '+Math.round(aLote).toLocaleString()+' m²');
+      var cen=turf.centroid(landPoly);
+      add('info','Centroide del lote: ['+cen.geometry.coordinates[0].toFixed(5)+', '+cen.geometry.coordinates[1].toFixed(5)+']');
+    }catch(e){}
+
+    // 4. EJECUTAR EL CRUCE REAL
+    var afect=await detectarAfectacion(geomLote,(ACTIVE_LAND.province||''));
+    if(afect.afectado){
+      add('ok','✓ AFECTACIÓN DETECTADA: '+afect.conflictos.length+' conflicto(s). Severidad: '+afect.maxSeveridad);
+      afect.conflictos.forEach(function(c){add('info','  → '+c.name+' ('+c.severity+', '+(c.pct!=null?c.pct+'%':'parcial')+')');});
+    } else {
+      add('warn','El cruce se ejecutó pero NO encontró intersección. El polígono del lote no cae sobre ninguna de las '+ambientales.reduce(function(a,l){return a+((l.features&&l.features.features)?l.features.features.length:0);},0)+' geometrías ambientales. Puede ser que este lote realmente no esté sobre un área protegida, o que las coordenadas no coincidan geográficamente.');
+      // Diagnóstico extra: medir distancia al área más cercana
+      try{
+        var cen=turf.centroid(landPoly);
+        var minD=Infinity,nombreCerca='';
+        ambientales.forEach(function(l){
+          if(!l.features||!l.features.features)return;
+          l.features.features.forEach(function(f){
+            var p=geomToTurfPoly(f.geometry);if(!p)return;
+            try{var cp=turf.centroid(p);var d=turf.distance(cen,cp,{units:'kilometers'});if(d<minD){minD=d;nombreCerca=l.name;}}catch(e){}
+          });
+        });
+        if(minD!==Infinity)add('info','Área protegida más cercana al lote: ~'+minD.toFixed(1)+' km ('+nombreCerca+')');
+      }catch(e){}
+    }
+  }catch(e){add('error','Error en diagnóstico: '+e.message);}
+  render();
+  function render(){
+    if(!out)return;
+    var colores={ok:'#2ECC71',error:'#E74C3C',warn:'#F2C94C',info:'#8FA5BE'};
+    var iconos={ok:'✓',error:'✗',warn:'⚠',info:'·'};
+    out.innerHTML='<div style="font-family:monospace;font-size:11px;line-height:1.7">'
+      +log.map(function(l){return '<div style="color:'+colores[l.estado]+'">'+iconos[l.estado]+' '+l.msg+'</div>';}).join('')
+      +'</div>';
+  }
+}
+
+
 async function rGeoLayers(){
   var pt=document.getElementById('page-title');if(pt)pt.textContent='Capas Geográficas';
   var con=document.getElementById('content');
@@ -4257,6 +4351,13 @@ async function rGeoLayers(){
   if(window._shpFailed)degraded+='<div style="background:rgba(231,126,34,.1);border:1px solid rgba(231,126,34,.3);border-radius:8px;padding:10px 14px;font-size:11px;color:#E67E22;margin-bottom:12px">⚠ shpjs no se cargó. Puedes usar KML/GeoJSON; Shapefile queda inactivo.</div>';
   con.innerHTML='<div style="max-width:1050px;margin:0 auto">'
     +degraded
+    +'<div style="background:rgba(242,201,76,.06);border:1px solid rgba(242,201,76,.25);border-radius:12px;padding:16px;margin-bottom:18px">'
+      +'<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">'
+        +'<div><div style="font-size:13px;font-weight:800;color:#F2C94C">🔍 Auditor de detección de afectación</div><div style="font-size:11px;color:'+C.tm+';margin-top:2px">Prueba toda la cadena con el terreno activo y reporta dónde falla.</div></div>'
+        +'<button onclick="diagnosticarAfectacion()" style="background:#F2C94C;color:#1a1100;padding:9px 18px;border-radius:8px;font-size:12px;font-weight:800;border:none;cursor:pointer;white-space:nowrap">Ejecutar diagnóstico</button>'
+      +'</div>'
+      +'<div id="diag-out" style="display:none;margin-top:14px;background:rgba(0,0,0,.25);border-radius:8px;padding:12px 14px;max-height:380px;overflow-y:auto"></div>'
+    +'</div>'
     +'<div style="background:'+C.c1+';border:1px solid '+C.bd+';border-radius:14px;padding:22px;margin-bottom:18px">'
       +'<div style="font-size:14px;font-weight:800;color:'+C.tx+';margin-bottom:6px">🗺 Cargar nueva capa geográfica</div>'
       +'<div style="font-size:11px;color:'+C.tm+';margin-bottom:16px">Sube KML, GeoJSON o Shapefile (.zip). El motor cruzará cada capa con el polígono de los lotes según su método de medición.</div>'
