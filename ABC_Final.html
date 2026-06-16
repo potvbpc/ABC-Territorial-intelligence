@@ -41,7 +41,7 @@ select.inp option{background:#0E1E2E}
 .fa2{animation:fu .33s .14s ease both}
 </style>
 </head>
-<!-- VERSION-DEPLOY: VF20 — Fix critico: la doLogin activa ahora reconoce admin por email y BD -->
+<!-- VERSION-DEPLOY: VF22 — Fix: carga ligera de capas ambientales + diagnostico de afectacion en consola -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -3492,6 +3492,20 @@ async function loadGeoLayers(province){
   }catch(e){console.warn('loadGeoLayers:',e);return [];}
 }
 
+// Carga SOLO capas ambientales de intersección (ligero y confiable para la alerta)
+var GEO_AMBIENTAL_CACHE=null;
+async function loadGeoLayersAmbientales(){
+  if(GEO_AMBIENTAL_CACHE)return GEO_AMBIENTAL_CACHE;
+  try{
+    if(typeof SUPA==='undefined')return [];
+    var r=await SUPA.from('geo_layers').select('id,name,dimension,subtype,measure_method,severity,source,features,feature_count').eq('active',true).eq('dimension','ambiental');
+    if(r.error){console.warn('geo ambiental load:',r.error);return [];}
+    GEO_AMBIENTAL_CACHE=(r.data||[]).filter(function(l){return l.measure_method==='interseccion';});
+    console.log('[Afectación] Capas ambientales cargadas:',GEO_AMBIENTAL_CACHE.length,GEO_AMBIENTAL_CACHE.map(function(l){return l.name+' ('+l.feature_count+')';}));
+    return GEO_AMBIENTAL_CACHE;
+  }catch(e){console.warn('loadGeoLayersAmbientales:',e);return [];}
+}
+
 // Centroide del lote como punto Turf
 function loteCentroide(landGeojson){
   try{
@@ -3811,8 +3825,16 @@ async function detectarAfectacion(landGeojson, province){
     if(window._turfFailed||typeof turf==='undefined')return resultado;
     if(!landGeojson||!landGeojson.coordinates)return resultado;
 
+    // FUENTE 1: restriction_zones (VF16) — geometría en .geojson
     var zones=await loadRestrictionZones(province);
-    if(!zones||zones.length===0)return resultado; // sin zonas cargadas → motor normal
+    // FUENTE 2: geo_layers ambientales (VF17) — carga ligera (solo ambiental)
+    var ambientales=await loadGeoLayersAmbientales();
+
+    if((!zones||zones.length===0)&&(!ambientales||ambientales.length===0)){
+      console.log('[Afectación] No hay capas ambientales cargadas');
+      return resultado;
+    }
+    console.log('[Afectación] Analizando lote contra',ambientales.length,'capas ambientales y',(zones||[]).length,'zonas');
 
     // Normalizar el polígono del lote a Feature de Turf
     var landPoly;
@@ -3827,40 +3849,50 @@ async function detectarAfectacion(landGeojson, province){
     var severidadRank={critica:3,condicionada:2,riesgo:1};
     var maxRank=0;
 
-    zones.forEach(function(z){
+    // Helper: probar intersección de un polígono-zona contra el lote
+    function probarZona(zonePoly,zName,zType,zSeverity,zSource){
       try{
-        if(!z.geojson||!z.geojson.coordinates)return;
-        var zonePoly;
-        try{
-          zonePoly=(z.geojson.type==='MultiPolygon')?turf.multiPolygon(z.geojson.coordinates):turf.polygon(z.geojson.coordinates);
-        }catch(e){return;}
-
-        // ¿Hay intersección real?
         if(turf.booleanIntersects(landPoly,zonePoly)){
           var pct=0;
           try{
-            // Manejo robusto: Turf v7 usa featureCollection, v6 usa (a,b)
             var inter=null;
             try{inter=turf.intersect(turf.featureCollection([landPoly,zonePoly]));}
             catch(ev7){try{inter=turf.intersect(landPoly,zonePoly);}catch(ev6){inter=null;}}
-            if(inter&&areaLote>0){
-              var areaInter=turf.area(inter);
-              pct=Math.min(100,Math.round((areaInter/areaLote)*100));
-            }
+            if(inter&&areaLote>0){var areaInter=turf.area(inter);pct=Math.min(100,Math.round((areaInter/areaLote)*100));}
           }catch(e){pct=null;}
-
-          resultado.conflictos.push({
-            name:z.name,zone_type:z.zone_type,severity:z.severity,
-            source:z.source||'MIMARENA',pct:pct,notes:z.notes||''
-          });
-          var rank=severidadRank[z.severity]||1;
-          if(rank>maxRank){maxRank=rank;resultado.maxSeveridad=z.severity;}
+          resultado.conflictos.push({name:zName,zone_type:zType,severity:zSeverity,source:zSource||'MIMARENA',pct:pct,notes:''});
+          var rank=severidadRank[zSeverity]||1;
+          if(rank>maxRank){maxRank=rank;resultado.maxSeveridad=zSeverity;}
           if(pct&&pct>resultado.pctTotal)resultado.pctTotal=pct;
         }
-      }catch(e){console.warn('zona '+(z.name||'?')+':',e);}
+      }catch(e){console.warn('probarZona '+(zName||'?')+':',e);}
+    }
+
+    // Procesar restriction_zones (un polígono por fila en .geojson)
+    (zones||[]).forEach(function(z){
+      if(!z.geojson||!z.geojson.coordinates)return;
+      var zonePoly;
+      try{zonePoly=(z.geojson.type==='MultiPolygon')?turf.multiPolygon(z.geojson.coordinates):turf.polygon(z.geojson.coordinates);}catch(e){return;}
+      probarZona(zonePoly,z.name,z.zone_type,z.severity,z.source);
+    });
+
+    // Procesar geo_layers ambientales (FeatureCollection en .features, varios polígonos)
+    ambientales.forEach(function(layer){
+      var fc=layer.features;
+      if(!fc||!fc.features)return;
+      var sev=layer.severity||'critica';
+      fc.features.forEach(function(f){
+        if(!f.geometry||!f.geometry.coordinates)return;
+        var zonePoly;
+        try{
+          zonePoly=(f.geometry.type==='MultiPolygon')?turf.multiPolygon(f.geometry.coordinates):turf.polygon(f.geometry.coordinates);
+        }catch(e){return;}
+        probarZona(zonePoly,layer.name,layer.subtype||'area_protegida',sev,layer.source);
+      });
     });
 
     resultado.afectado=resultado.conflictos.length>0;
+    console.log('[Afectación] Resultado:',resultado.afectado?('⚠ AFECTADO - '+resultado.conflictos.length+' conflictos, severidad '+resultado.maxSeveridad):'sin afectación detectada');
   }catch(e){console.warn('detectarAfectacion:',e);}
   return resultado;
 }
@@ -4353,7 +4385,7 @@ async function cargarGeoLayer(){
     if(ins.error)throw ins.error;
     showStatus('✓ Capa «'+name+'» cargada ('+fc.features.length+' geometrías).','green');
     document.getElementById('gl-name').value='';document.getElementById('gl-sub').value='';fileInp.value='';
-    GEO_LAYERS_CACHE=null;
+    GEO_LAYERS_CACHE=null;GEO_AMBIENTAL_CACHE=null;
     cargarListaGeoLayers();
   }catch(err){console.error('cargarGeoLayer:',err);showStatus('Error: '+(err.message||'no se pudo procesar'),'red');}
 }
@@ -4391,7 +4423,7 @@ async function eliminarGeoLayer(id){
   try{
     var del=await SUPA.from('geo_layers').delete().eq('id',id);
     if(del.error)throw del.error;
-    GEO_LAYERS_CACHE=null;
+    GEO_LAYERS_CACHE=null;GEO_AMBIENTAL_CACHE=null;
     cargarListaGeoLayers();
   }catch(e){alert('No se pudo eliminar: '+(e.message||''));}
 }
