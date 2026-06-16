@@ -41,7 +41,7 @@ select.inp option{background:#0E1E2E}
 .fa2{animation:fu .33s .14s ease both}
 </style>
 </head>
-<!-- VERSION-DEPLOY: VF31 — Coherencia total del certificado con la afectacion: veredicto, recomendacion, etiqueta y valor -->
+<!-- VERSION-DEPLOY: VF32 — Certificado dibuja area protegida sobre el lote + zoom mas alejado para ver entorno -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -3875,7 +3875,7 @@ function geomToTurfPoly(geometry){
 
 async function detectarAfectacion(landGeojson, province){
   // Devuelve {afectado, conflictos:[{name,zone_type,severity,source,pct,notes}], maxSeveridad}
-  var resultado={afectado:false,conflictos:[],maxSeveridad:null,pctTotal:0};
+  var resultado={afectado:false,conflictos:[],maxSeveridad:null,pctTotal:0,_geometrias:[]};
   try{
     // Si Turf no cargó o no hay polígono, salir limpio (degradación elegante)
     if(window._turfFailed||typeof turf==='undefined')return resultado;
@@ -3921,6 +3921,15 @@ async function detectarAfectacion(landGeojson, province){
           var rank=severidadRank[zSeverity]||1;
           if(rank>maxRank){maxRank=rank;resultado.maxSeveridad=zSeverity;}
           if(pct&&pct>resultado.pctTotal)resultado.pctTotal=pct;
+          // Guardar la geometría de la zona afectada para dibujarla en el certificado
+          try{
+            if(!resultado._geometrias)resultado._geometrias=[];
+            // Recortar la zona al entorno del lote para no guardar polígonos gigantes
+            // Guardamos la geometría tal cual (Turf Feature → geometry)
+            if(zonePoly&&zonePoly.geometry&&resultado._geometrias.length<5){
+              resultado._geometrias.push(zonePoly.geometry);
+            }
+          }catch(e){}
         }
       }catch(e){console.warn('probarZona '+(zName||'?')+':',e);}
     }
@@ -4977,24 +4986,56 @@ function verCertificado(){
       var spanLng=Math.abs(maxLng-minLng),spanLat=Math.abs(maxLat-minLat);
       var maxSpan=Math.max(spanLng,spanLat);
       var zoom=maxSpan>0.05?12:maxSpan>0.02?13:maxSpan>0.008?14:maxSpan>0.003?15:16;
-      // Usar GeoJSON overlay (más confiable que path para polígonos)
-      var geojsonOverlay={
-        type:'Feature',
-        properties:{
-          'stroke':'#42A5F5','stroke-width':3,'stroke-opacity':1,
-          'fill':'#1565C0','fill-opacity':0.35
-        },
-        geometry:{type:'Polygon',coordinates:[coords]}
-      };
-      var geojsonStr=encodeURIComponent(JSON.stringify(geojsonOverlay));
-      // 'auto' + padding para dejar margen alrededor del perímetro completo
+      // Construir capas GeoJSON: primero el/las área(s) protegida(s) afectadas (rojo),
+      // luego el lote encima (azul). El orden importa: lo último se dibuja arriba.
+      var overlays=[];
+
+      // ── Áreas protegidas que intersectan (de la afectación detectada) ──
+      var hayAfectacion=(r&&r.afectacion&&r.afectacion.afectado&&r.afectacion.conflictos&&r.afectacion.conflictos.length>0);
+      if(hayAfectacion&&r.afectacion._geometrias&&r.afectacion._geometrias.length>0){
+        // Dibujar las áreas protegidas afectadas, simplificadas para no romper la URL
+        r.afectacion._geometrias.forEach(function(gz){
+          try{
+            var geomDibujar=gz;
+            // Simplificar agresivamente si Turf está disponible (evita URL gigante)
+            if(!window._turfFailed&&typeof turf!=='undefined'){
+              try{
+                var feat={type:'Feature',properties:{},geometry:gz};
+                var simp=turf.simplify(feat,{tolerance:0.0008,highQuality:false,mutate:false});
+                if(simp&&simp.geometry)geomDibujar=simp.geometry;
+              }catch(e){}
+            }
+            overlays.push({type:'Feature',
+              properties:{'stroke':'#E74C3C','stroke-width':2,'stroke-opacity':0.9,'fill':'#E74C3C','fill-opacity':0.30},
+              geometry:geomDibujar});
+          }catch(e){}
+        });
+      }
+
+      // ── El lote (siempre, encima) ──
+      overlays.push({type:'Feature',
+        properties:{'stroke':'#42A5F5','stroke-width':3,'stroke-opacity':1,'fill':'#1565C0','fill-opacity':hayAfectacion?0.15:0.35},
+        geometry:{type:'Polygon',coordinates:[coords]}});
+
+      var fcOverlay={type:'FeatureCollection',features:overlays};
+      var geojsonStr=encodeURIComponent(JSON.stringify(fcOverlay));
+      // Si la URL es demasiado larga (límite ~8000 chars de Mapbox static),
+      // quitar las áreas protegidas y dejar solo el lote (degradación elegante)
+      if(geojsonStr.length>7000){
+        var soloLote={type:'FeatureCollection',features:[overlays[overlays.length-1]]};
+        geojsonStr=encodeURIComponent(JSON.stringify(soloLote));
+      }
+      // padding mayor (90) = vista más alejada, muestra el entorno inmediato del lote
       var mapUrl='https://api.mapbox.com/styles/v1/mapbox/satellite-streets-v12/static/'
         +'geojson('+geojsonStr+')/'
-        +'auto/680x340@2x?padding=50&access_token='+MAPBOX_TOKEN;
+        +'auto/680x360@2x?padding=90&access_token='+MAPBOX_TOKEN;
       var lname=(ACTIVE_LAND&&ACTIVE_LAND.name)?ACTIVE_LAND.name:'Lote analizado';
-      mapImgHtml='<div class="cert-map" style="margin:14px 0;border-radius:10px;overflow:hidden;border:2px solid #1565C0;box-shadow:0 2px 8px rgba(0,0,0,.15)">'
-        +'<img src="'+mapUrl+'" style="width:100%;display:block;height:240px;object-fit:cover" onerror="this.parentElement.style.display=\'none\'" alt="Polígono del terreno"/>'
-        +'<div style="background:#1565C0;color:white;padding:6px 12px;font-size:9.5px;text-align:center;font-family:Arial,sans-serif;font-weight:600">📍 Delimitación satelital de «'+lname+'» · Coordenadas reales del lote · ABC Territorial Intelligence</div>'
+      var leyenda=hayAfectacion
+        ?'📍 «'+lname+'» (azul) sobre área protegida (rojo) · '+r.afectacion.conflictos[0].name+' · ABC Territorial Intelligence'
+        :'📍 Delimitación satelital de «'+lname+'» · Coordenadas reales del lote · ABC Territorial Intelligence';
+      mapImgHtml='<div class="cert-map" style="margin:14px 0;border-radius:10px;overflow:hidden;border:2px solid '+(hayAfectacion?'#E74C3C':'#1565C0')+';box-shadow:0 2px 8px rgba(0,0,0,.15)">'
+        +'<img src="'+mapUrl+'" style="width:100%;display:block;height:250px;object-fit:cover" onerror="this.parentElement.style.display=\'none\'" alt="Polígono del terreno"/>'
+        +'<div style="background:'+(hayAfectacion?'#C0392B':'#1565C0')+';color:white;padding:6px 12px;font-size:9.5px;text-align:center;font-family:Arial,sans-serif;font-weight:600">'+leyenda+'</div>'
         +'</div>';
     }
   }catch(e){console.warn('cert map:',e);mapImgHtml='';}
