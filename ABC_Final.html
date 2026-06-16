@@ -41,7 +41,7 @@ select.inp option{background:#0E1E2E}
 .fa2{animation:fu .33s .14s ease both}
 </style>
 </head>
-<!-- VERSION-DEPLOY: VF28 — Diagnostico muestra version en ejecucion + consolidacion de cruce robusto -->
+<!-- VERSION-DEPLOY: VF29 — Fix raiz: corrige coordenadas invertidas (lat,lng) al vuelo en el cruce -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -3822,26 +3822,50 @@ async function loadRestrictionZones(province){
 // Normaliza cualquier geometría a un polígono Turf válido, detectando
 // el tipo por la profundidad real del anidamiento (no solo por .type).
 // Maneja Polygon, MultiPolygon y anidamientos irregulares. VF24.
+// Detecta si un par [a,b] tiene las coordenadas invertidas para RD.
+// RD: longitud ∈ [-72,-68] (negativa), latitud ∈ [17,20] (positiva).
+// Si el primer valor es positivo y parece latitud, está invertido.
+function _coordInvertida(pt){
+  if(!Array.isArray(pt)||pt.length<2)return false;
+  var a=pt[0],b=pt[1];
+  // Caso típico de inversión: a (que debería ser lng negativa) es positivo
+  // y está en rango de latitud RD, mientras b es negativo en rango de longitud
+  return (a>0 && a>=17 && a<=20 && b<0 && b<=-68 && b>=-72);
+}
+// Voltea recursivamente todos los pares [lat,lng]→[lng,lat] de una estructura
+function _voltearCoords(c){
+  if(!Array.isArray(c))return c;
+  // ¿Es un punto [a,b]?
+  if(typeof c[0]==='number'&&typeof c[1]==='number'){
+    return [c[1],c[0]];
+  }
+  return c.map(_voltearCoords);
+}
+
 function geomToTurfPoly(geometry){
   if(!geometry||!geometry.coordinates)return null;
   var c=geometry.coordinates;
   var t=geometry.type;
+  // ── Detectar y corregir coordenadas invertidas (lat,lng → lng,lat) ──
   try{
-    // Medir profundidad de anidamiento contando arrays hasta llegar a un número
+    var muestra=c;
+    while(Array.isArray(muestra)&&Array.isArray(muestra[0]))muestra=muestra[0];
+    // muestra ahora es el primer punto [a,b]
+    if(_coordInvertida(muestra)){
+      c=_voltearCoords(c);
+    }
+  }catch(e){}
+  try{
     function depth(a){var d=0;var x=a;while(Array.isArray(x)){d++;x=x[0];}return d;}
     var dp=depth(c);
-    // Polygon: profundidad 3 ([anillos][puntos][x,y])
-    // MultiPolygon: profundidad 4 ([polígonos][anillos][puntos][x,y])
     if(t==='MultiPolygon'||dp===4){
       return turf.multiPolygon(c);
     } else if(t==='Polygon'||dp===3){
       return turf.polygon(c);
     } else if(dp===2){
-      // Es un solo anillo sin envolver: [[x,y],[x,y]...] → envolver como Polygon
       return turf.polygon([c]);
     }
   }catch(e){
-    // Último intento: probar ambas firmas
     try{return turf.multiPolygon(c);}catch(e1){}
     try{return turf.polygon(c);}catch(e2){}
     try{return turf.polygon([c]);}catch(e3){}
