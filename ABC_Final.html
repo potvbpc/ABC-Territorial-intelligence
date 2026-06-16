@@ -41,7 +41,7 @@ select.inp option{background:#0E1E2E}
 .fa2{animation:fu .33s .14s ease both}
 </style>
 </head>
-<!-- VERSION-DEPLOY: VF29 — Fix raiz: corrige coordenadas invertidas (lat,lng) al vuelo en el cruce -->
+<!-- VERSION-DEPLOY: VF31 — Coherencia total del certificado con la afectacion: veredicto, recomendacion, etiqueta y valor -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -3959,7 +3959,13 @@ async function detectarAfectacion(landGeojson, province){
         if(!f.geometry)return;
         totalFeatures++;
         var zonePoly=geomToTurfPoly(f.geometry);
-        if(zonePoly){featuresProcesados++;probarZona(zonePoly,layer.name,layer.subtype||'area_protegida',sev,layer.source);}
+        if(zonePoly){
+          featuresProcesados++;
+          // Usar el nombre individual del área (de los atributos del shapefile)
+          var props=f.properties||{};
+          var nombreArea=props.name||props.NOMBRE||props.Nombre||props.nombre||props.NAME||props.AREA_NOMB||props.NOM_AP||props.toponimia||props.TOPONIMIA||layer.name;
+          probarZona(zonePoly,nombreArea,layer.subtype||'area_protegida',sev,layer.source);
+        }
       });
     });
     console.log('[Afectación] Geometrías procesadas:',featuresProcesados,'de',totalFeatures);
@@ -4918,8 +4924,10 @@ function verCertificado(){
   if(!WLC_RESULT){alert('Primero genera el diagnóstico.');return;}
   try{
   var r=WLC_RESULT;
-  var scColor=r.score>=75?'#1565C0':r.score>=55?'#F39C12':'#E74C3C';
-  var scLabel=r.score>=75?'TERRENO APTO':r.score>=55?'APTO CONDICIONAL':'NO APTO';
+  var _afCrit=(r.afectacion&&r.afectacion.afectado&&r.afectacion.maxSeveridad==='critica');
+  var _afCond=(r.afectacion&&r.afectacion.afectado&&r.afectacion.maxSeveridad==='condicionada');
+  var scColor=_afCrit?'#C0392B':(_afCond?'#E67E22':(r.score>=75?'#1565C0':r.score>=55?'#F39C12':'#E74C3C'));
+  var scLabel=_afCrit?'RESTRINGIDO POR ÁREA PROTEGIDA':(_afCond?'APTO CONDICIONADO':(r.score>=75?'TERRENO APTO':r.score>=55?'APTO CONDICIONAL':'NO APTO'));
   var css='body{font-family:Arial,sans-serif;font-size:11pt;color:#111;padding:24px;background:white;line-height:1.5}'
     +'h1{color:#1565C0;font-size:16pt;margin:0 0 4px}'
     +'h2{color:#1565C0;font-size:12pt;border-bottom:2px solid #1565C0;padding-bottom:4px;margin-top:18px;page-break-after:avoid;break-after:avoid}'
@@ -5049,7 +5057,18 @@ function verCertificado(){
       var uso=land.uso_actual||'uso no especificado';
       var sc=r.score;
       var scLabel=sc>=80?'muy alto':sc>=65?'alto':sc>=50?'moderado':sc>=35?'bajo':'muy bajo';
-      var scVerdict=sc>=75?'APTO para estructuración y publicación al marketplace':sc>=55?'APTO CONDICIONAL — requiere validación de restricciones detectadas':'NO APTO — se recomienda revisar las restricciones críticas antes de avanzar';
+      // VF31: La afectación geográfica crítica degrada el veredicto
+      var afectCritica=(r.afectacion&&r.afectacion.afectado&&r.afectacion.maxSeveridad==='critica');
+      var afectCondicionada=(r.afectacion&&r.afectacion.afectado&&r.afectacion.maxSeveridad==='condicionada');
+      var afectPct=(r.afectacion&&r.afectacion.pctTotal)?r.afectacion.pctTotal:0;
+      var scVerdict;
+      if(afectCritica){
+        scVerdict='NO APTO PARA DESARROLLO CONVENCIONAL — el terreno intersecta un área protegida'+(afectPct>0?' ('+afectPct+'% afectado)':'')+'. Solo son viables usos compatibles con conservación, sujetos a autorización ambiental.';
+      } else if(afectCondicionada){
+        scVerdict='APTO CONDICIONADO — el terreno está en zona de amortiguamiento; el desarrollo requiere autorización ambiental previa y usos de baja intensidad.';
+      } else {
+        scVerdict=sc>=75?'APTO para estructuración y publicación al marketplace':sc>=55?'APTO CONDICIONAL — requiere validación de restricciones detectadas':'NO APTO — se recomienda revisar las restricciones críticas antes de avanzar';
+      }
       var mejorCapa=r.breakdown.reduce(function(a,b){return(b.xi>a.xi)?b:a;},{xi:0,label:'—'});
       var peorCapa=r.breakdown.filter(function(l){return !l.label.toLowerCase().includes('proteg')&&!l.label.toLowerCase().includes('riesgo');}).reduce(function(a,b){return(b.xi<a.xi)?b:a;},{xi:100,label:'—'});
       var hasFile=r.breakdown.some(function(l){return l.label&&l.label.indexOf('[GeoJSON]')>=0;});
@@ -5077,14 +5096,23 @@ function verCertificado(){
         +'. El Valor Residual del Suelo (VRS) resultante es de US$ '+r.rlvm.VRS.toLocaleString()
         +', equivalente a US$ '+r.rlvm.VRS_m2.toLocaleString()+' por metro cuadrado'
         +' con un ajuste de '+r.rlvm.ajuste_score+'% del potencial según el Score WLC obtenido.'
+        +((r.afectacion&&r.afectacion.afectado&&r.afectacion.maxSeveridad==='critica')?' <strong style="color:#C0392B">⚠ IMPORTANTE: este valor de desarrollo es teórico y NO aplica mientras el terreno esté afectado por un área protegida. El valor real de un terreno con restricción ambiental crítica es sustancialmente menor y depende de los usos de conservación permitidos.</strong>':'')
       ):'Los datos de valoración RLVM no están disponibles. Ejecuta el análisis completo.';
       var _ld=ACTIVE_LAND||{};
       var vrsTexto=r.rlvm&&r.rlvm.VRS>0?(' Con un valor residual potencial de US$ '+r.rlvm.VRS.toLocaleString()+' (US$'+r.rlvm.VRS_m2.toLocaleString()+'/m²)'):'.';
-      var recomendacion=sc>=75
+      var recomendacion;
+      if(afectCritica){
+        var nombresAfect=r.afectacion.conflictos.map(function(c){return c.name;}).join(', ');
+        recomendacion='El equipo técnico de ABC Territorial Intelligence NO recomienda el desarrollo convencional de '+(_ld.name||'el terreno')+' debido a que intersecta un área protegida ('+nombresAfect+(afectPct>0?', afectando ~'+afectPct+'% del lote':'')+'). El desarrollo residencial, comercial o turístico convencional está severamente restringido o prohibido por ley en estas zonas. Las únicas alternativas viables son usos compatibles con la conservación (ecoturismo de bajo impacto, parque ecológico, investigación), y siempre sujetas a autorización expresa de MIMARENA. Antes de cualquier transacción, es indispensable validar los límites oficiales del área protegida con MIMARENA y la Dirección de Catastro. El valor de desarrollo proyectado abajo es referencial y NO aplica mientras persista la restricción ambiental.'
+      } else if(afectCondicionada){
+        recomendacion='El equipo técnico de ABC Territorial Intelligence recomienda PRECAUCIÓN para '+(_ld.name||'el terreno')+'. El lote se ubica en una zona de amortiguamiento de área protegida, donde el desarrollo es posible pero condicionado a usos de baja intensidad y autorización ambiental previa de MIMARENA. Se recomienda un estudio de impacto ambiental antes de avanzar.'
+      } else {
+        recomendacion=sc>=75
         ?'El equipo técnico de ABC Territorial Intelligence recomienda PROCEDER con la estructuración del proyecto '+(_ld.name||'indicado')+'.'+vrsTexto+', el terreno de '+area+' en '+prov+' cumple con los criterios de idoneidad territorial y presenta condiciones favorables para su publicación en el Marketplace de Inversión ABC. Próximos pasos: subir título de propiedad, plano catastral certificado y mínimo 3 fotografías del inmueble.'
         :sc>=55
         ?'El equipo técnico de ABC Territorial Intelligence recomienda REVISIÓN CONDICIONADA para '+(_ld.name||'el terreno')+' ('+((_ld.area_m2&&_ld.area_m2>0?Math.round(_ld.area_m2).toLocaleString()+' m²':'área no especificada'))+', '+(_ld.province||'—')+'). El terreno presenta potencial'+vrsTexto+', pero existen condiciones que deben atenderse antes de publicar. Se sugiere verificar las restricciones identificadas con MIMARENA, INDRHI y la Dirección de Catastro, y realizar un estudio de factibilidad ambiental complementario.'
         :'El equipo técnico de ABC Territorial Intelligence NO recomienda proceder con la estructuración de '+(_ld.name||'el terreno')+' ('+((_ld.area_m2&&_ld.area_m2>0?Math.round(_ld.area_m2).toLocaleString()+' m²':'área no especificada'))+', '+(_ld.province||'—')+') en este momento. El análisis con score de '+sc+'/100 revela restricciones críticas que comprometen su viabilidad para desarrollo e inversión. Se recomienda consultar con especialistas en gestión ambiental y regularización territorial antes de cualquier decisión.';
+      }
       return '<div style="line-height:1.8;font-size:11pt;color:#333">'
         +'<p style="margin-bottom:10px">El presente análisis territorial fue realizado sobre el inmueble denominado <strong>'+landName+'</strong>, ubicado en <strong>'+prov+'</strong>, con una superficie de <strong>'+area+'</strong> y uso actual clasificado como <strong>'+uso+'</strong>. El análisis fue procesado mediante el motor de análisis multicriterio WLC (Weighted Linear Combination) de ABC Territorial Intelligence, cruzando <strong>'+numLayers+' capas GIS</strong> con datos territoriales reales de República Dominicana.</p>'
         +'<p style="margin-bottom:10px">El Score WLC obtenido es de <strong>'+sc+'/100</strong>, calificado como <strong>'+scLabel.toUpperCase()+'</strong>, con veredicto de idoneidad: <strong>'+scVerdict+'</strong>. '+pca+'</p>'
