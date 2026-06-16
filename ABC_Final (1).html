@@ -41,7 +41,7 @@ select.inp option{background:#0E1E2E}
 .fa2{animation:fu .33s .14s ease both}
 </style>
 </head>
-<!-- VERSION-DEPLOY: VF18 — Catalogo gis_layers reconciliado + gestor con plantillas precargadas del catalogo real -->
+<!-- VERSION-DEPLOY: VF19 — Fix: admin por email tiene prioridad sobre el rol guardado en BD -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -5040,11 +5040,16 @@ async function checkSession(){
     var meta=CURRENT_USER.user_metadata;
     ROLE=(meta&&meta.role)||'propietario';
     var adminEmails=['abc.projectseirl@gmail.com','admin@abcprojectsrd.com'];
-    if(adminEmails.indexOf(CURRENT_USER.email)>=0)ROLE='admin';
+    var esAdminPorEmail=(adminEmails.indexOf(CURRENT_USER.email)>=0);
+    if(esAdminPorEmail)ROLE='admin';
     // Cargar plan del perfil para control de acceso a funciones premium
     try{
       var pr=await SUPA.from('profiles').select('plan,role').eq('id',CURRENT_USER.id).single();
-      if(pr.data){USER_PLAN=pr.data.plan||'Basico';if(pr.data.role)ROLE=pr.data.role;}
+      if(pr.data){
+        USER_PLAN=pr.data.plan||'Basico';
+        // El admin por email tiene prioridad: NO lo sobrescribe el rol de la BD
+        if(pr.data.role && !esAdminPorEmail)ROLE=pr.data.role;
+      }
     }catch(e){console.warn('plan load:',e);}
     // 1. Cargar terrenos PRIMERO (await), luego renderizar con datos completos
     await loadUserLands();
