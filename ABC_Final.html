@@ -41,7 +41,7 @@ select.inp option{background:#0E1E2E}
 .fa2{animation:fu .33s .14s ease both}
 </style>
 </head>
-<!-- VERSION-DEPLOY: VF22 — Fix: carga ligera de capas ambientales + diagnostico de afectacion en consola -->
+<!-- VERSION-DEPLOY: VF23 — Correccion de valores inflados: precios de venta realistas + multiplicadores suavizados -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -3180,34 +3180,35 @@ var RLVM_CACHE_TTL = 3600000; // 1 hour cache
 // t = tasa interés anual | m = margen desarrollador | r = reserva riesgos
 // Fuentes: ACOPROVI, Banco Central RD, ONE, BHD León Q1-2025
 var RD_MARKET={
-  // Zonas turísticas premium
-  'La Altagracia':      {p:2800,c:750,t:0.11,m:0.22,r:0.05,nota:'Bávaro/Punta Cana · Alta demanda turística'},
-  'La Romana':          {p:2200,c:720,t:0.11,m:0.20,r:0.05,nota:'Casa de Campo · Turismo premium'},
-  'Samaná':             {p:1800,c:680,t:0.12,m:0.19,r:0.06,nota:'El Limón · Ecoturismo en auge'},
-  'María Trinidad Sánchez':{p:1400,c:620,t:0.13,m:0.17,r:0.07,nota:'Cabrera · Zona costera emergente'},
+  // p = precio venta m² del producto TERMINADO gama media (USD), valores conservadores 2025
+  // Zonas turísticas
+  'La Altagracia':      {p:1650,c:720,t:0.11,m:0.18,r:0.06,nota:'Bávaro/Punta Cana · Alta demanda turística'},
+  'La Romana':          {p:1500,c:700,t:0.11,m:0.17,r:0.06,nota:'Casa de Campo · Turismo premium'},
+  'Samaná':             {p:1300,c:660,t:0.12,m:0.16,r:0.07,nota:'El Limón · Ecoturismo en auge'},
+  'María Trinidad Sánchez':{p:1050,c:600,t:0.13,m:0.15,r:0.07,nota:'Cabrera · Zona costera emergente'},
   // Grandes centros urbanos
-  'Distrito Nacional':  {p:3200,c:860,t:0.10,m:0.20,r:0.04,nota:'SD Capital · Mercado consolidado'},
-  'Santo Domingo':      {p:2800,c:820,t:0.10,m:0.20,r:0.04,nota:'Gran Santo Domingo · Alta demanda'},
-  'Santiago':           {p:1900,c:720,t:0.11,m:0.18,r:0.05,nota:'Santiago · Segunda ciudad del país'},
+  'Distrito Nacional':  {p:1950,c:820,t:0.10,m:0.18,r:0.05,nota:'SD Capital · Mercado consolidado'},
+  'Santo Domingo':      {p:1650,c:780,t:0.10,m:0.18,r:0.05,nota:'Gran Santo Domingo · Alta demanda'},
+  'Santiago':           {p:1350,c:700,t:0.11,m:0.16,r:0.06,nota:'Santiago · Segunda ciudad del país'},
   // Zonas periurbanas y secundarias
-  'San Cristóbal':      {p:1500,c:660,t:0.12,m:0.17,r:0.06,nota:'Periurbana SD · En desarrollo'},
-  'La Vega':            {p:1400,c:640,t:0.12,m:0.16,r:0.06,nota:'Zona central · Mercado moderado'},
-  'Puerto Plata':       {p:1700,c:660,t:0.12,m:0.18,r:0.06,nota:'Costa norte · Turismo en recuperación'},
-  'San Pedro de Macorís':{p:1600,c:650,t:0.12,m:0.17,r:0.06,nota:'Este · Industrial y residencial'},
-  'Peravia':            {p:1300,c:620,t:0.13,m:0.16,r:0.07,nota:'Bani · Mercado emergente'},
-  'Espaillat':          {p:1200,c:610,t:0.13,m:0.15,r:0.07,nota:'Moca · Zona agroindustrial'},
-  'Duarte':             {p:1100,c:600,t:0.13,m:0.15,r:0.07,nota:'San Francisco · Zona norte'},
-  'Monseñor Nouel':     {p:1100,c:600,t:0.13,m:0.15,r:0.07,nota:'Bonao · Zona minera'},
-  'Sánchez Ramírez':    {p:1000,c:590,t:0.14,m:0.14,r:0.08,nota:'Cotuí · Zona interior'},
-  'El Seibo':           {p:980, c:580,t:0.14,m:0.14,r:0.08,nota:'El Seibo · Zona ganadera'},
-  'Hato Mayor':         {p:1000,c:585,t:0.14,m:0.14,r:0.08,nota:'Hato Mayor · Zona oriental'},
-  'Monte Plata':        {p:1050,c:590,t:0.13,m:0.14,r:0.08,nota:'Zona noreste · Mercado bajo'},
-  'San José de Ocoa':   {p:950, c:575,t:0.14,m:0.13,r:0.09,nota:'Zona montañosa'},
-  'Azua':               {p:980, c:580,t:0.14,m:0.13,r:0.08,nota:'Azua · Zona semiárida'},
-  'Barahona':           {p:1050,c:590,t:0.13,m:0.14,r:0.08,nota:'Sur · Turismo emergente'},
-  'Bahoruco':           {p:900, c:570,t:0.14,m:0.13,r:0.09,nota:'Zona suroeste'},
-  'Independencia':      {p:850, c:565,t:0.15,m:0.12,r:0.09,nota:'Frontera · Mercado muy limitado'},
-  'Pedernales':         {p:1200,c:600,t:0.13,m:0.16,r:0.07,nota:'Frontera sur · Proyecto turístico CIELO'},
+  'San Cristóbal':      {p:1050,c:640,t:0.12,m:0.15,r:0.07,nota:'Periurbana SD · En desarrollo'},
+  'La Vega':            {p:1000,c:620,t:0.12,m:0.14,r:0.07,nota:'Zona central · Mercado moderado'},
+  'Puerto Plata':       {p:1200,c:640,t:0.12,m:0.16,r:0.07,nota:'Costa norte · Turismo en recuperación'},
+  'San Pedro de Macorís':{p:1150,c:630,t:0.12,m:0.15,r:0.07,nota:'Este · Industrial y residencial'},
+  'Peravia':            {p:950, c:600,t:0.13,m:0.14,r:0.08,nota:'Bani · Mercado emergente'},
+  'Espaillat':          {p:880, c:595,t:0.13,m:0.13,r:0.08,nota:'Moca · Zona agroindustrial'},
+  'Duarte':             {p:820, c:585,t:0.13,m:0.13,r:0.08,nota:'San Francisco · Zona norte'},
+  'Monseñor Nouel':     {p:820, c:585,t:0.13,m:0.13,r:0.08,nota:'Bonao · Zona minera'},
+  'Sánchez Ramírez':    {p:760, c:575,t:0.14,m:0.12,r:0.09,nota:'Cotuí · Zona interior'},
+  'El Seibo':           {p:730, c:565,t:0.14,m:0.12,r:0.09,nota:'El Seibo · Zona ganadera'},
+  'Hato Mayor':         {p:750, c:570,t:0.14,m:0.12,r:0.09,nota:'Hato Mayor · Zona oriental'},
+  'Monte Plata':        {p:780, c:575,t:0.13,m:0.12,r:0.09,nota:'Zona noreste · Mercado bajo'},
+  'San José de Ocoa':   {p:720, c:560,t:0.14,m:0.11,r:0.10,nota:'Zona montañosa'},
+  'Azua':               {p:730, c:565,t:0.14,m:0.11,r:0.09,nota:'Azua · Zona semiárida'},
+  'Barahona':           {p:780, c:575,t:0.13,m:0.12,r:0.09,nota:'Sur · Turismo emergente'},
+  'Bahoruco':           {p:680, c:555,t:0.14,m:0.11,r:0.10,nota:'Zona suroeste'},
+  'Independencia':      {p:640, c:550,t:0.15,m:0.10,r:0.10,nota:'Frontera · Mercado muy limitado'},
+  'Pedernales':         {p:880, c:585,t:0.13,m:0.14,r:0.08,nota:'Frontera sur · Proyecto turístico CIELO'},
   'default':            {p:1200,c:610,t:0.13,m:0.15,r:0.08,nota:'Provincia no especificada'}
 };
 async function fetchRLVMData(wlcScore){
@@ -3221,16 +3222,16 @@ async function fetchRLVMData(wlcScore){
   var municipio=(ACTIVE_LAND&&ACTIVE_LAND.municipio)||'';
   var muniLow=municipio.toLowerCase();
   var precioAjustado=z.p;
-  if(muniLow.includes('bávaro')||muniLow.includes('bavaro')||muniLow.includes('punta cana')||muniLow.includes('cap cana'))precioAjustado=Math.round(z.p*1.25);
-  else if(muniLow.includes('verón')||muniLow.includes('veron'))precioAjustado=Math.round(z.p*1.10);
-  else if(muniLow.includes('naco')||muniLow.includes('piantini')||muniLow.includes('evaristo'))precioAjustado=Math.round(z.p*1.20);
-  else if(muniLow.includes('mirador')||muniLow.includes('bella vista'))precioAjustado=Math.round(z.p*1.15);
+  if(muniLow.includes('bávaro')||muniLow.includes('bavaro')||muniLow.includes('punta cana')||muniLow.includes('cap cana'))precioAjustado=Math.round(z.p*1.15);
+  else if(muniLow.includes('verón')||muniLow.includes('veron'))precioAjustado=Math.round(z.p*1.05);
+  else if(muniLow.includes('naco')||muniLow.includes('piantini')||muniLow.includes('evaristo'))precioAjustado=Math.round(z.p*1.18);
+  else if(muniLow.includes('mirador')||muniLow.includes('bella vista'))precioAjustado=Math.round(z.p*1.10);
   else if(muniLow.includes('zona franca')||muniLow.includes('industrial'))precioAjustado=Math.round(z.p*0.85);
   // Ajuste por uso actual del lote
   var uso2=(ACTIVE_LAND&&ACTIVE_LAND.uso_actual)||'';
   var costoAdj=z.c;
-  if(uso2.includes('hotelero')||uso2.includes('turístico'))costoAdj=Math.round(z.c*1.30);
-  else if(uso2.includes('Comercial')||uso2.includes('comercial'))costoAdj=Math.round(z.c*1.10);
+  if(uso2.includes('hotelero')||uso2.includes('turístico'))costoAdj=Math.round(z.c*1.18);
+  else if(uso2.includes('Comercial')||uso2.includes('comercial'))costoAdj=Math.round(z.c*1.08);
   else if(uso2.includes('industrial')||uso2.includes('Industrial'))costoAdj=Math.round(z.c*0.95);
   else if(uso2.includes('vivienda social')||uso2.includes('social'))costoAdj=Math.round(z.c*0.75);
   var mkt={precio_venta_m2_usd:precioAjustado,costo_construccion_m2_usd:costoAdj,tasa_interes_anual:z.t,
