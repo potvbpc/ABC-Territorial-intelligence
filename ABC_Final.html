@@ -41,7 +41,7 @@ select.inp option{background:#0E1E2E}
 .fa2{animation:fu .33s .14s ease both}
 </style>
 </head>
-<!-- VERSION-DEPLOY: VF18 — Catalogo gis_layers reconciliado + gestor con plantillas precargadas del catalogo real -->
+<!-- VERSION-DEPLOY: VF20 — Fix critico: la doLogin activa ahora reconoce admin por email y BD -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -5040,11 +5040,16 @@ async function checkSession(){
     var meta=CURRENT_USER.user_metadata;
     ROLE=(meta&&meta.role)||'propietario';
     var adminEmails=['abc.projectseirl@gmail.com','admin@abcprojectsrd.com'];
-    if(adminEmails.indexOf(CURRENT_USER.email)>=0)ROLE='admin';
+    var esAdminPorEmail=(adminEmails.indexOf(CURRENT_USER.email)>=0);
+    if(esAdminPorEmail)ROLE='admin';
     // Cargar plan del perfil para control de acceso a funciones premium
     try{
       var pr=await SUPA.from('profiles').select('plan,role').eq('id',CURRENT_USER.id).single();
-      if(pr.data){USER_PLAN=pr.data.plan||'Basico';if(pr.data.role)ROLE=pr.data.role;}
+      if(pr.data){
+        USER_PLAN=pr.data.plan||'Basico';
+        // El admin por email tiene prioridad: NO lo sobrescribe el rol de la BD
+        if(pr.data.role && !esAdminPorEmail)ROLE=pr.data.role;
+      }
     }catch(e){console.warn('plan load:',e);}
     // 1. Cargar terrenos PRIMERO (await), luego renderizar con datos completos
     await loadUserLands();
@@ -5064,7 +5069,10 @@ SUPA.auth.onAuthStateChange(function(event,session){
   } else if(session&&session.user){
     CURRENT_USER=session.user;
     var meta=CURRENT_USER.user_metadata;
-    ROLE=(meta&&meta.role)||ROLE||'propietario';
+    // No degradar el rol si ya es admin; respetar admin por email
+    var adminEmails=['abc.projectseirl@gmail.com','admin@abcprojectsrd.com'];
+    if(adminEmails.indexOf(CURRENT_USER.email)>=0){ROLE='admin';}
+    else if(ROLE!=='admin'){ROLE=(meta&&meta.role)||ROLE||'propietario';}
   }
 });
 
@@ -5134,11 +5142,24 @@ async function doLogin(){
   if(btn){btn.textContent='Verificando...';btn.style.opacity='.7';}
   try{
     var data=await supaSignIn(em,pw);
+    CURRENT_USER=data.user;
     var meta=data.user&&data.user.user_metadata;
     ROLE=(meta&&meta.role)||'propietario';
+    // Reconocer admin por correo (prioridad máxima)
+    var adminEmails=['abc.projectseirl@gmail.com','admin@abcprojectsrd.com'];
+    var esAdminPorEmail=(data.user&&adminEmails.indexOf(data.user.email)>=0);
+    if(esAdminPorEmail)ROLE='admin';
+    // Si no es admin por email, revisar el rol en la BD (profiles)
+    if(!esAdminPorEmail){
+      try{
+        var pr=await SUPA.from('profiles').select('role,plan').eq('id',data.user.id).single();
+        if(pr.data){if(pr.data.role)ROLE=pr.data.role;if(pr.data.plan)USER_PLAN=pr.data.plan;}
+      }catch(e){console.warn('role load:',e);}
+    }
     if(btn){btn.textContent='Ingresar →';btn.style.opacity='1';}
     // Load user lands before showing dashboard
     await loadUserLands();
+    buildNav();
     goTo(ROLE==='admin'?'overview':'dashboard');
   }catch(err){
     if(btn){btn.textContent='Ingresar →';btn.style.opacity='1';}
