@@ -41,7 +41,7 @@ select.inp option{background:#0E1E2E}
 .fa2{animation:fu .33s .14s ease both}
 </style>
 </head>
-<!-- VERSION-DEPLOY: VF25 — Auditor de afectacion: diagnostico de cadena completa con datos reales -->
+<!-- VERSION-DEPLOY: VF26 — Carga de capas robusta: simplifica geometria, controla tamano, detecta UTM, errores claros -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -4505,21 +4505,80 @@ async function cargarGeoLayer(){
         fc=parseKMLtoFC(txt);
       }
     }
-    if(!fc||!fc.features||fc.features.length===0){showStatus('⚠ No se extrajeron geometrías válidas del archivo.','red');return;}
+    if(!fc||!fc.features||fc.features.length===0){showStatus('⚠ No se extrajeron geometrías válidas del archivo. Si es Shapefile, el .zip debe incluir el .shp (geometría), no solo metadatos .qmd.','red');return;}
+
+    // ── DETECTAR COORDENADAS UTM (metros) y avisar ──
+    var primerPunto=null;
+    (function buscarPunto(c){if(!Array.isArray(c))return;if(typeof c[0]==='number'&&typeof c[1]==='number'){primerPunto=c;return;}for(var i=0;i<c.length&&!primerPunto;i++)buscarPunto(c[i]);})(
+      (fc.features.find(function(f){return f.geometry;})||{}).geometry?fc.features.find(function(f){return f.geometry;}).geometry.coordinates:null
+    );
+    if(primerPunto&&(Math.abs(primerPunto[0])>180||Math.abs(primerPunto[1])>90)){
+      showStatus('⚠ El archivo está en coordenadas proyectadas (UTM/metros), no en grados. Debes exportarlo desde QGIS en SRC <strong>EPSG:4326 (WGS 84)</strong> para que el sistema lo pueda cruzar. Coordenada detectada: ['+Math.round(primerPunto[0])+', '+Math.round(primerPunto[1])+'].','red');
+      return;
+    }
+
     // Detectar tipo de geometría dominante
     var gtype='polygon';
     var first=fc.features.find(function(f){return f.geometry;});
     if(first){var t=first.geometry.type;gtype=(t.indexOf('Point')>=0)?'point':(t.indexOf('Line')>=0)?'line':'polygon';}
-    showStatus('Guardando '+fc.features.length+' geometrías...','yellow');
-    var payload={name:name,dimension:dim,subtype:sub||null,measure_method:method,geometry_type:gtype,optimal_dist_m:opt,max_dist_m:max,weight:weight,source:src||null,province:prov||null,features:fc,feature_count:fc.features.length,active:true};
+
+    // ── SIMPLIFICAR geometría para reducir tamaño (mantiene la forma) ──
+    var fcGuardar=fc;
+    if(!window._turfFailed&&typeof turf!=='undefined'&&(gtype==='polygon'||gtype==='line')){
+      try{
+        var simplificado={type:'FeatureCollection',features:fc.features.map(function(f){
+          if(!f.geometry)return f;
+          try{
+            // tolerancia ~0.0001 grados ≈ 11m, buena para áreas protegidas
+            var s=turf.simplify(f,{tolerance:0.0001,highQuality:false,mutate:false});
+            return s;
+          }catch(e){return f;}
+        })};
+        fcGuardar=simplificado;
+      }catch(e){console.warn('simplify:',e);}
+    }
+
+    // ── CONTROL DE TAMAÑO del payload ──
+    var jsonStr=JSON.stringify(fcGuardar);
+    var sizeMB=(jsonStr.length/1048576);
+    showStatus('Procesando '+fc.features.length+' geometrías ('+sizeMB.toFixed(1)+' MB)...','yellow');
+    if(sizeMB>4.5){
+      // Demasiado grande incluso simplificado: simplificar más agresivamente
+      try{
+        fcGuardar={type:'FeatureCollection',features:fcGuardar.features.map(function(f){
+          if(!f.geometry)return f;
+          try{return turf.simplify(f,{tolerance:0.0005,highQuality:false,mutate:false});}catch(e){return f;}
+        })};
+        jsonStr=JSON.stringify(fcGuardar);sizeMB=(jsonStr.length/1048576);
+      }catch(e){}
+      if(sizeMB>4.5){
+        showStatus('⚠ La capa es muy grande ('+sizeMB.toFixed(1)+' MB) incluso simplificada. Divídela en partes más pequeñas (por ejemplo, por provincia o región) y cárgalas por separado.','red');
+        return;
+      }
+    }
+
+    var payload={name:name,dimension:dim,subtype:sub||null,measure_method:method,geometry_type:gtype,optimal_dist_m:opt,max_dist_m:max,weight:weight,source:src||null,province:prov||null,features:fcGuardar,feature_count:fcGuardar.features.length,active:true};
     if(dim==='ambiental'&&sev)payload.severity=sev;
-    var ins=await SUPA.from('geo_layers').insert(payload);
-    if(ins.error)throw ins.error;
-    showStatus('✓ Capa «'+name+'» cargada ('+fc.features.length+' geometrías).','green');
+
+    // ── GUARDAR con manejo de error de red claro ──
+    var ins;
+    try{
+      ins=await SUPA.from('geo_layers').insert(payload);
+    }catch(netErr){
+      showStatus('⚠ Error de conexión al guardar ('+sizeMB.toFixed(1)+' MB). Puede ser el tamaño o la red. Intenta dividir la capa en partes más pequeñas. Detalle: '+(netErr.message||'Failed to fetch'),'red');
+      return;
+    }
+    if(ins&&ins.error)throw ins.error;
+    showStatus('✓ Capa «'+name+'» cargada ('+fcGuardar.features.length+' geometrías, '+sizeMB.toFixed(1)+' MB).','green');
     document.getElementById('gl-name').value='';document.getElementById('gl-sub').value='';fileInp.value='';
     GEO_LAYERS_CACHE=null;GEO_AMBIENTAL_CACHE=null;
     cargarListaGeoLayers();
-  }catch(err){console.error('cargarGeoLayer:',err);showStatus('Error: '+(err.message||'no se pudo procesar'),'red');}
+  }catch(err){
+    console.error('cargarGeoLayer:',err);
+    var msg=err.message||'no se pudo procesar';
+    if(msg.indexOf('Failed to fetch')>=0)msg='Error de conexión o archivo muy grande. Intenta dividir la capa en partes.';
+    showStatus('Error: '+msg,'red');
+  }
 }
 
 // Parser KML → FeatureCollection (soporta Point, LineString, Polygon)
