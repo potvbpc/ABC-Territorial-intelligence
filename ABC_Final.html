@@ -41,7 +41,7 @@ select.inp option{background:#0E1E2E}
 .fa2{animation:fu .33s .14s ease both}
 </style>
 </head>
-<!-- VERSION-DEPLOY: VF26 — Carga de capas robusta: simplifica geometria, controla tamano, detecta UTM, errores claros -->
+<!-- VERSION-DEPLOY: VF28 — Diagnostico muestra version en ejecucion + consolidacion de cruce robusto -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -3807,13 +3807,14 @@ function runWLC(metrics,pca){
 var RESTRICTION_ZONES_CACHE=null;
 
 async function loadRestrictionZones(province){
-  // Cargar zonas de la provincia (con cache simple)
+  // Cargar TODAS las zonas activas (sin filtro de provincia).
+  // El cruce geográfico determina la intersección real; filtrar por
+  // texto de provincia puede excluir zonas por diferencias de formato.
   try{
     if(typeof SUPA==='undefined')return [];
-    var q=SUPA.from('restriction_zones').select('*').eq('active',true);
-    if(province)q=q.or('province.eq.'+province+',province.is.null');
-    var r=await q;
+    var r=await SUPA.from('restriction_zones').select('*').eq('active',true);
     if(r.error){console.warn('zones load:',r.error);return [];}
+    console.log('[Afectación] restriction_zones cargadas:',(r.data||[]).length);
     return r.data||[];
   }catch(e){console.warn('loadRestrictionZones:',e);return [];}
 }
@@ -3900,11 +3901,28 @@ async function detectarAfectacion(landGeojson, province){
       }catch(e){console.warn('probarZona '+(zName||'?')+':',e);}
     }
 
-    // Procesar restriction_zones (un polígono por fila en .geojson)
+    // Procesar restriction_zones — soporta geometría directa Y FeatureCollection
     (zones||[]).forEach(function(z){
       if(!z.geojson)return;
-      var zonePoly=geomToTurfPoly(z.geojson.type?z.geojson:{type:'Polygon',coordinates:z.geojson.coordinates});
-      if(zonePoly)probarZona(zonePoly,z.name,z.zone_type,z.severity,z.source);
+      var g=z.geojson;
+      // Caso 1: FeatureCollection
+      if(g.type==='FeatureCollection'&&g.features){
+        g.features.forEach(function(f){
+          if(!f.geometry)return;
+          var zp=geomToTurfPoly(f.geometry);
+          if(zp)probarZona(zp,z.name,z.zone_type,z.severity,z.source);
+        });
+      }
+      // Caso 2: Feature único
+      else if(g.type==='Feature'&&g.geometry){
+        var zp=geomToTurfPoly(g.geometry);
+        if(zp)probarZona(zp,z.name,z.zone_type,z.severity,z.source);
+      }
+      // Caso 3: Geometría directa (Polygon/MultiPolygon con .coordinates)
+      else if(g.coordinates){
+        var zp=geomToTurfPoly(g.type?g:{type:'Polygon',coordinates:g.coordinates});
+        if(zp)probarZona(zp,z.name,z.zone_type,z.severity,z.source);
+      }
     });
 
     // Procesar geo_layers ambientales (FeatureCollection en .features, varios polígonos)
@@ -4259,6 +4277,10 @@ async function diagnosticarAfectacion(){
   var log=[];
   function add(estado,msg){log.push({estado:estado,msg:msg});}
   try{
+    // Mostrar versión del código en ejecución
+    var vm=document.documentElement.innerHTML.match(/VERSION-DEPLOY:\s*(VF\d+)/);
+    add('info','Versión del código en ejecución: '+(vm?vm[1]:'desconocida'));
+    add('info','geomToTurfPoly disponible: '+(typeof geomToTurfPoly==='function'?'SÍ':'NO — código viejo'));
     // 1. Turf disponible
     if(window._turfFailed||typeof turf==='undefined'){add('error','Turf.js NO está cargado. Sin él no hay cruce geográfico.');render();return;}
     add('ok','Turf.js cargado correctamente.');
@@ -5009,7 +5031,15 @@ function verCertificado(){
       var hasFile=r.breakdown.some(function(l){return l.label&&l.label.indexOf('[GeoJSON]')>=0;});
       var numLayers=r.breakdown.length;
       var pca=r.pca&&r.pca.pca_applied?'Se aplicó corrección PCA para eliminar correlaciones redundantes entre capas, garantizando la independencia estadística del análisis. ':'No se detectaron correlaciones significativas entre capas. ';
-      var restr=r.restrictions&&r.restrictions.length>0?'Se identificaron las siguientes alertas críticas: '+r.restrictions.join('; ')+'. Estas restricciones han sido aplicadas como factores de penalización en el cálculo final del Score WLC.':'No se identificaron restricciones críticas ni zonas de riesgo que comprometan la viabilidad del terreno.';
+      // Combinar restricciones del motor + afectación geográfica REAL (cruce)
+      var alertasReales=[];
+      if(r.restrictions&&r.restrictions.length>0)alertasReales=alertasReales.concat(r.restrictions);
+      if(r.afectacion&&r.afectacion.afectado){
+        r.afectacion.conflictos.forEach(function(c){
+          alertasReales.push('intersección con '+c.name+' ('+c.severity+(c.pct!=null?', '+c.pct+'% del lote':'')+')');
+        });
+      }
+      var restr=alertasReales.length>0?'⚠ El análisis geográfico identificó las siguientes condiciones que requieren atención: '+alertasReales.join('; ')+'. Estas condiciones afectan la viabilidad del desarrollo y deben validarse con las autoridades competentes (MIMARENA, INDRHI, Catastro) antes de cualquier transacción.':'No se identificaron restricciones críticas ni zonas de riesgo que comprometan la viabilidad del terreno.';
       var rlvmNarr=r.rlvm?(
         'Desde el punto de vista financiero, el motor RLVM estimó sobre un lote de '
         +areaNum.toLocaleString()+' m² en '+prov
