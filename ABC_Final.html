@@ -41,7 +41,7 @@ select.inp option{background:#0E1E2E}
 .fa2{animation:fu .33s .14s ease both}
 </style>
 </head>
-<!-- VERSION-DEPLOY: VF34 — Valoracion lista para anclar a precios geoespaciales reales (degrada al modelo si no hay data) -->
+<!-- VERSION-DEPLOY: VF35 — 5 capas nuevas: clase suelo, pendiente, poblacion, huella construida, cobertura -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -3802,7 +3802,8 @@ async function fetchGisMetrics(){
         var dimToMetric={
           movilidad:'accesibilidad', equipamiento:'servicios_basicos',
           infraestructura:'servicios_basicos', mercado:'mercado',
-          ambiental:'area_protegida'
+          ambiental:'area_protegida', suelo:'aptitud_suelo',
+          demografia:'mercado', urbanizacion:'consolidacion'
         };
         Object.keys(porDim).forEach(function(dim){
           var prom=Math.round(porDim[dim].sum/porDim[dim].n);
@@ -4502,13 +4503,18 @@ async function rGeoLayers(){
           +'<option value="hospital">🏥 Hospitales / Salud (equipamiento · proximidad · peso 12)</option>'
           +'<option value="escuela">🏫 Escuelas / Educación (equipamiento · proximidad · peso 12)</option>'
           +'<option value="comercial">📈 Zonas Comerciales (mercado · densidad · peso 18)</option>'
+          +'<option value="clase_suelo">🌱 Clase / Aptitud de Suelo (intersección · capacidad agrológica)</option>'
+          +'<option value="pendiente">⛰ Pendientes del Terreno (intersección · riesgo construcción)</option>'
+          +'<option value="poblacion">👥 Densidad Poblacional (intersección · demanda)</option>'
+          +'<option value="huella">🏗 Huella Construida (densidad · consolidación urbana)</option>'
+          +'<option value="cobertura">🗺 Cobertura / Uso de Suelo (intersección · uso actual)</option>'
           +'<option value="valor_suelo">💲 Valores de Suelo (precio real por zona · ancla la valoración)</option>'
         +'</select>'
         +'<div style="font-size:9px;color:'+C.tm+';margin-top:5px">Al elegir, se completan dimensión, método, peso y distancias. Puedes ajustar antes de cargar.</div>'
       +'</div>'
       +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">'
         +'<div><div style="font-size:9px;color:'+C.tm+';font-weight:700;text-transform:uppercase;margin-bottom:4px">Nombre de la capa</div><input id="gl-name" placeholder="Ej: Vías principales RD" style="width:100%;background:rgba(255,255,255,.06);border:1px solid '+C.bd+';color:'+C.tx+';padding:10px 12px;border-radius:8px;font-size:13px"/></div>'
-        +'<div><div style="font-size:9px;color:'+C.tm+';font-weight:700;text-transform:uppercase;margin-bottom:4px">Dimensión</div><select id="gl-dim" onchange="_glDimChanged()" style="width:100%;background:#0E1E2E;border:1px solid '+C.bd+';color:'+C.tx+';padding:10px 12px;border-radius:8px;font-size:13px"><option value="movilidad">🛣 Movilidad y accesibilidad</option><option value="equipamiento">🏥 Equipamiento urbano</option><option value="infraestructura">💧 Infraestructura y servicios</option><option value="mercado">📈 Mercado y economía</option><option value="ambiental">🛡 Ambiental y riesgo</option><option value="valor_suelo">💲 Valor de suelo (precios)</option></select></div>'
+        +'<div><div style="font-size:9px;color:'+C.tm+';font-weight:700;text-transform:uppercase;margin-bottom:4px">Dimensión</div><select id="gl-dim" onchange="_glDimChanged()" style="width:100%;background:#0E1E2E;border:1px solid '+C.bd+';color:'+C.tx+';padding:10px 12px;border-radius:8px;font-size:13px"><option value="movilidad">🛣 Movilidad y accesibilidad</option><option value="equipamiento">🏥 Equipamiento urbano</option><option value="infraestructura">💧 Infraestructura y servicios</option><option value="mercado">📈 Mercado y economía</option><option value="ambiental">🛡 Ambiental y riesgo</option><option value="suelo">🌱 Clase y aptitud de suelo</option><option value="demografia">👥 Demografía y población</option><option value="urbanizacion">🏗 Urbanización y huella</option><option value="valor_suelo">💲 Valor de suelo (precios)</option></select></div>'
       +'</div>'
       +'<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:14px">'
         +'<div><div style="font-size:9px;color:'+C.tm+';font-weight:700;text-transform:uppercase;margin-bottom:4px">Subtipo</div><input id="gl-sub" placeholder="Ej: vias_principales" style="width:100%;background:rgba(255,255,255,.06);border:1px solid '+C.bd+';color:'+C.tx+';padding:10px 12px;border-radius:8px;font-size:13px"/></div>'
@@ -4549,6 +4555,11 @@ function aplicarPlantillaCapa(){
     hospital:     {name:'Hospitales y Centros de Salud',dim:'equipamiento',sub:'hospital',method:'proximidad',weight:0.12,opt:800,max:8000,src:'MSP'},
     escuela:      {name:'Escuelas y Centros Educativos',dim:'equipamiento',sub:'escuela',method:'proximidad',weight:0.12,opt:600,max:5000,src:'MINERD'},
     comercial:    {name:'Zonas Comerciales',dim:'mercado',sub:'zona_comercial',method:'densidad',weight:0.18,opt:0,max:3000,src:'ONE'},
+    clase_suelo:  {name:'Clase y Aptitud de Suelo',dim:'suelo',sub:'clase_suelo',method:'interseccion',weight:0.12,opt:0,max:0,sev:'condicionada',src:'Ministerio de Agricultura'},
+    pendiente:    {name:'Pendientes del Terreno',dim:'suelo',sub:'pendiente',method:'interseccion',weight:0.10,opt:0,max:0,sev:'riesgo',src:'IGN / modelo elevación'},
+    poblacion:    {name:'Densidad Poblacional',dim:'demografia',sub:'densidad_poblacion',method:'interseccion',weight:0.10,opt:0,max:0,src:'ONE Censo'},
+    huella:       {name:'Huella Construida',dim:'urbanizacion',sub:'huella_construida',method:'densidad',weight:0.08,opt:0,max:2000,src:'OSM / catastro'},
+    cobertura:    {name:'Cobertura y Uso de Suelo',dim:'urbanizacion',sub:'uso_suelo',method:'interseccion',weight:0.08,opt:0,max:0,src:'Medio Ambiente / IGN'},
     valor_suelo:  {name:'Valores de Suelo por Zona',dim:'valor_suelo',sub:'precio_m2',method:'interseccion',weight:0.0,opt:0,max:0,src:'Catastro/Mercado'}
   };
   var p=P[t];if(!p)return;
@@ -4571,7 +4582,11 @@ function _glDimChanged(){
   var method=document.getElementById('gl-method');
   var sevWrap=document.getElementById('gl-sev-wrap');
   if(dim==='ambiental'){method.value='interseccion';sevWrap.style.display='block';}
+  else if(dim==='suelo'){method.value='interseccion';sevWrap.style.display='block';}
+  else if(dim==='demografia'){method.value='interseccion';sevWrap.style.display='none';}
+  else if(dim==='valor_suelo'){method.value='interseccion';sevWrap.style.display='none';}
   else if(dim==='mercado'){method.value='densidad';sevWrap.style.display='none';}
+  else if(dim==='urbanizacion'){method.value='densidad';sevWrap.style.display='none';}
   else{method.value='proximidad';sevWrap.style.display='none';}
 }
 
