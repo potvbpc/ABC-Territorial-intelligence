@@ -41,7 +41,7 @@ select.inp option{background:#0E1E2E}
 .fa2{animation:fu .33s .14s ease both}
 </style>
 </head>
-<!-- VERSION-DEPLOY: VF32 — Certificado dibuja area protegida sobre el lote + zoom mas alejado para ver entorno -->
+<!-- VERSION-DEPLOY: VF33 — Valoracion creible: valor puntual + banda de incertidumbre + descargo de estimacion modelada -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -5079,12 +5079,22 @@ function verCertificado(){
         var landName=ACTIVE_LAND&&ACTIVE_LAND.name?ACTIVE_LAND.name:'el terreno';
         var area=r.rlvm&&r.rlvm.area_m2>0?r.rlvm.area_m2:(ACTIVE_LAND&&ACTIVE_LAND.area_m2?Math.round(ACTIVE_LAND.area_m2):0);
         var precioM2Act=(r.rlvm.precio_suelo_m2&&r.rlvm.precio_suelo_m2>0)?r.rlvm.precio_suelo_m2:(area>0?Math.round(vActual/area):0);
-        return '<table style="margin-bottom:10px">'
+        // Banda de incertidumbre: ±18% (estimación modelada, no tasación formal)
+        var bandaPct=18;
+        var actBajo=Math.round(vActual*(1-bandaPct/100)), actAlto=Math.round(vActual*(1+bandaPct/100));
+        var potBajo=Math.round(vPot*(1-bandaPct/100)), potAlto=Math.round(vPot*(1+bandaPct/100));
+        var m2ActBajo=Math.round(precioM2Act*(1-bandaPct/100)), m2ActAlto=Math.round(precioM2Act*(1+bandaPct/100));
+        var m2PotBajo=Math.round(r.rlvm.VRS_m2*(1-bandaPct/100)), m2PotAlto=Math.round(r.rlvm.VRS_m2*(1+bandaPct/100));
+        return '<table style="margin-bottom:6px">'
           +'<tr><th colspan="3" style="background:#0d47a1">Análisis de Rentabilidad para el Inversionista</th></tr>'
-          +'<tr style="background:#e3f2fd"><td><strong>Valor actual de mercado del suelo</strong><br><span style="font-size:8pt;color:#666">Precio comparable de terreno sin desarrollar</span></td><td style="text-align:right">US$ '+vActual.toLocaleString()+'</td><td style="text-align:right;color:#555">US$ '+precioM2Act.toLocaleString()+'/m²</td></tr>'
-          +'<tr style="background:#e8f5e9"><td><strong>Valor residual potencial (VRS desarrollado)</strong></td><td style="text-align:right;color:#1b5e20">US$ '+vPot.toLocaleString()+'</td><td style="text-align:right;color:#1b5e20">US$ '+r.rlvm.VRS_m2.toLocaleString()+'/m²</td></tr>'
+          +'<tr style="background:#fffde7"><td colspan="3" style="font-size:8pt;color:#7a6a00;padding:6px 10px"><strong>⚠ Estimación preliminar modelada.</strong> Las cifras siguientes provienen de un modelo automatizado (RLVM) con precios de referencia zonales, NO de una tasación formal ni de comparables verificados del lote específico. Deben leerse como orden de magnitud orientativo, no como valor de transacción. Para un valor defendible ante banca o inversión, se requiere tasación CODIA/ITADO con comparables reales de la zona.</td></tr>'
+          +'<tr style="background:#e3f2fd"><td><strong>Valor actual de mercado del suelo</strong><br><span style="font-size:8pt;color:#666">Precio comparable de terreno sin desarrollar · estimación</span></td><td style="text-align:right">US$ '+vActual.toLocaleString()+'</td><td style="text-align:right;color:#555">US$ '+precioM2Act.toLocaleString()+'/m²</td></tr>'
+          +'<tr style="background:#f5faff"><td style="font-size:8pt;color:#666">Rango estimado (±'+bandaPct+'%)</td><td style="text-align:right;font-size:8pt;color:#666">US$ '+actBajo.toLocaleString()+' – '+actAlto.toLocaleString()+'</td><td style="text-align:right;font-size:8pt;color:#666">US$ '+m2ActBajo.toLocaleString()+'–'+m2ActAlto.toLocaleString()+'/m²</td></tr>'
+          +'<tr style="background:#e8f5e9"><td><strong>Valor residual potencial (VRS desarrollado)</strong><br><span style="font-size:8pt;color:#666">estimación</span></td><td style="text-align:right;color:#1b5e20">US$ '+vPot.toLocaleString()+'</td><td style="text-align:right;color:#1b5e20">US$ '+r.rlvm.VRS_m2.toLocaleString()+'/m²</td></tr>'
+          +'<tr style="background:#f3fbf4"><td style="font-size:8pt;color:#666">Rango estimado (±'+bandaPct+'%)</td><td style="text-align:right;font-size:8pt;color:#666">US$ '+potBajo.toLocaleString()+' – '+potAlto.toLocaleString()+'</td><td style="text-align:right;font-size:8pt;color:#666">US$ '+m2PotBajo.toLocaleString()+'–'+m2PotAlto.toLocaleString()+'/m²</td></tr>'
           +'<tr style="background:#fff3e0;font-weight:bold"><td><strong>Ganancia potencial estimada</strong></td><td style="text-align:right;color:#e65100">US$ '+(vPot-vActual).toLocaleString()+'</td><td style="text-align:right;color:#e65100">×'+mult+' ('+pctGanancia+'% retorno)</td></tr>'
-          +'</table>';
+          +'</table>'
+          +'<p style="font-size:7.5pt;color:#999;margin:2px 0 10px">El rango ±'+bandaPct+'% refleja la incertidumbre propia de una estimación automatizada. El valor real puede situarse fuera de este rango según condiciones específicas del lote, del título y del momento de mercado.</p>';
       })()
     ):'<p>Ejecuta el diagnóstico completo para ver la valoración.</p>')
     +'<h2 style="page-break-before:auto">Resumen Ejecutivo del Análisis</h2>'
@@ -5135,8 +5145,8 @@ function verCertificado(){
         +', margen del desarrollador del '+Math.round(r.rlvm.margen_desarrollador*100)+'% equivalente a US$ '+r.rlvm.MD.toLocaleString()
         +' y reserva de riesgos del '+Math.round(r.rlvm.reserva_riesgo*100)+'% por US$ '+r.rlvm.RR.toLocaleString()
         +'. El Valor Residual del Suelo (VRS) resultante es de US$ '+r.rlvm.VRS.toLocaleString()
-        +', equivalente a US$ '+r.rlvm.VRS_m2.toLocaleString()+' por metro cuadrado'
-        +' con un ajuste de '+r.rlvm.ajuste_score+'% del potencial según el Score WLC obtenido.'
+        +', equivalente a aproximadamente US$ '+r.rlvm.VRS_m2.toLocaleString()+' por metro cuadrado'
+        +' (estimación modelada, ±18%) con un ajuste de '+r.rlvm.ajuste_score+'% del potencial según el Score WLC obtenido. Esta cifra es orientativa y no sustituye una tasación formal.'
         +((r.afectacion&&r.afectacion.afectado&&r.afectacion.maxSeveridad==='critica')?' <strong style="color:#C0392B">⚠ IMPORTANTE: este valor de desarrollo es teórico y NO aplica mientras el terreno esté afectado por un área protegida. El valor real de un terreno con restricción ambiental crítica es sustancialmente menor y depende de los usos de conservación permitidos.</strong>':'')
       ):'Los datos de valoración RLVM no están disponibles. Ejecuta el análisis completo.';
       var _ld=ACTIVE_LAND||{};
