@@ -41,7 +41,7 @@ select.inp option{background:#0E1E2E}
 .fa2{animation:fu .33s .14s ease both}
 </style>
 </head>
-<!-- VERSION-DEPLOY: VF39 — Fix de origen: el area se calcula del poligono si falta y valida antes de guardar -->
+<!-- VERSION-DEPLOY: VF40 — Uso real vs cartografico + analisis de permuta (peso del terreno sobre el desarrollo) -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -1437,9 +1437,14 @@ function rUpload(){
         <input class="inp" id="land-mun" placeholder="Ej: Bávaro"/>
       </div>
       <div>
-        <div style="font-size:9px;color:${C.tm};font-weight:600;text-transform:uppercase;letter-spacing:.08em;margin-bottom:5px">Uso actual</div>
+        <div style="font-size:9px;color:${C.tm};font-weight:600;text-transform:uppercase;letter-spacing:.08em;margin-bottom:5px">Uso cartográfico / oficial</div>
         <select class="inp" id="land-uso"><option>Residencial unifamiliar</option><option>Residencial multifamiliar</option><option>Vivienda social</option><option>Comercial local</option><option>Comercial mixto</option><option>Centros comerciales</option><option>Oficinas y servicios</option><option>Servicios financieros</option><option>Restaurantes y entretenimiento</option><option>Industrial ligera</option><option>Industrial mediana</option><option>Agroindustrial</option><option>Turístico hotelero</option><option>Turístico recreativo</option><option>Ecoturismo</option><option>Villas turísticas</option><option>Equipamiento educativo</option><option>Equipamiento de salud</option><option>Equipamiento cultural</option><option>Equipamiento deportivo</option><option>Equipamiento comunitario</option><option>Equipamiento administrativo</option><option>Equipamiento de seguridad</option><option>Recreativo y espacio público</option><option>Parques y áreas verdes</option><option>Infraestructura vial</option><option>Infraestructura energética</option><option>Infraestructura hidráulica</option><option>Telecomunicaciones</option><option>Agropecuario</option><option>Forestal</option><option>Conservación ambiental</option><option>Protección ecológica</option><option>Corredores ecológicos</option><option>Uso extractivo minero</option><option>Canteras y extracción de agregados</option><option>Uso mixto residencial-comercial</option><option>Uso mixto turístico-comercial</option><option>Uso mixto residencial-servicios</option></select>
       </div>
+    </div>
+    <div style="background:rgba(242,201,76,.06);border:1px solid rgba(242,201,76,.2);border-radius:8px;padding:11px 13px;margin-bottom:12px">
+      <div style="font-size:9px;color:#F2C94C;font-weight:700;text-transform:uppercase;letter-spacing:.08em;margin-bottom:5px">Uso real / predominante observado <span style="color:${C.tm};font-weight:400;text-transform:none">— recomendado</span></div>
+      <select class="inp" id="land-uso-real"><option value="">— Igual al cartográfico (o no verificado) —</option><option>Solar baldío / sin uso</option><option>Residencial unifamiliar</option><option>Residencial multifamiliar</option><option>Vivienda social</option><option>Comercial local</option><option>Comercial mixto</option><option>Oficinas y servicios</option><option>Industrial ligera</option><option>Agroindustrial</option><option>Turístico hotelero</option><option>Turístico recreativo</option><option>Ecoturismo</option><option>Villas turísticas</option><option>Equipamiento educativo</option><option>Equipamiento de salud</option><option>Agropecuario</option><option>Forestal</option><option>Conservación ambiental</option><option>Uso extractivo minero</option><option>Uso mixto residencial-comercial</option><option>Uso mixto turístico-comercial</option></select>
+      <div style="font-size:9px;color:${C.tm};margin-top:5px;line-height:1.5">En RD la cartografía suele estar desactualizada. Si el uso real difiere del mapa oficial (ej: el mapa dice forestal pero es un solar baldío), indícalo aquí. El análisis priorizará el uso real observado.</div>
     </div>
     <div>
       <div style="font-size:9px;color:${C.tm};font-weight:600;text-transform:uppercase;letter-spacing:.08em;margin-bottom:5px">Descripción (opcional)</div>
@@ -1715,6 +1720,7 @@ async function submitTerrain(){
   var name=document.getElementById('land-name')?document.getElementById('land-name').value.trim():'';
   var prov=document.getElementById('land-prov')?document.getElementById('land-prov').value:'';
   var uso=document.getElementById('land-uso')?document.getElementById('land-uso').value:'';
+  var usoReal=document.getElementById('land-uso-real')?document.getElementById('land-uso-real').value:'';
   var mun=document.getElementById('land-mun')?document.getElementById('land-mun').value.trim():'';
   var aInp=document.getElementById('land-area')?parseFloat(document.getElementById('land-area').value)||0:0;
   if(!name){alert('El nombre del terreno es obligatorio.');return;}
@@ -1761,7 +1767,7 @@ async function submitTerrain(){
     if(esActualizacion){
       // Actualizar límites de un terreno existente
       try{
-        var upd=await SUPA.from('lands').update({name:name,province:prov,municipio:mun,uso_actual:uso,geojson:geojson,area_m2:area}).eq('id',window._editingLandId).select().single();
+        var upd=await SUPA.from('lands').update({name:name,province:prov,municipio:mun,uso_actual:uso,uso_real:usoReal||null,geojson:geojson,area_m2:area}).eq('id',window._editingLandId).select().single();
         if(!upd.error){saved=upd.data;
           var ei=USER_LANDS.findIndex(function(l){return l.id===window._editingLandId;});
           if(ei>=0)USER_LANDS[ei]=saved;ACTIVE_LAND=saved;
@@ -1771,14 +1777,14 @@ async function submitTerrain(){
     } else {
       var ins=await SUPA.from('lands').insert({
         owner_id:CURRENT_USER.id,name:name,province:prov,municipio:mun,
-        uso_actual:uso,geojson:geojson,area_m2:area,status:'pending'
+        uso_actual:uso,uso_real:usoReal||null,geojson:geojson,area_m2:area,status:'pending'
       }).select().single();
       if(!ins.error){saved=ins.data;if(!USER_LANDS)USER_LANDS=[];USER_LANDS.unshift(saved);ACTIVE_LAND=saved;}
       else{console.error('Insert lands error:',ins.error);alert('⚠ No se pudo guardar en la nube: '+(ins.error.message||'')+'\n'+(ins.error.hint||ins.error.details||''));}
     }
   }
   if(!saved){
-    saved={id:null,name:name,province:prov,municipio:mun,uso_actual:uso,geojson:geojson,area_m2:area,status:'local'};
+    saved={id:null,name:name,province:prov,municipio:mun,uso_actual:uso,uso_real:usoReal||null,geojson:geojson,area_m2:area,status:'local'};
     ACTIVE_LAND=saved;if(!USER_LANDS)USER_LANDS=[];USER_LANDS.unshift(saved);
     if(!CURRENT_USER)window._pendingLand=saved;
   }
@@ -3303,7 +3309,7 @@ async function fetchRLVMData(wlcScore){
   else if(muniLow.includes('mirador')||muniLow.includes('bella vista'))precioAjustado=Math.round(z.p*1.10);
   else if(muniLow.includes('zona franca')||muniLow.includes('industrial'))precioAjustado=Math.round(z.p*0.85);
   // Ajuste por uso actual del lote
-  var uso2=(ACTIVE_LAND&&ACTIVE_LAND.uso_actual)||'';
+  var uso2=(ACTIVE_LAND&&ACTIVE_LAND.uso_real)||(ACTIVE_LAND&&ACTIVE_LAND.uso_actual)||'';
   var costoAdj=z.c;
   if(uso2.includes('hotelero')||uso2.includes('turístico'))costoAdj=Math.round(z.c*1.18);
   else if(uso2.includes('Comercial')||uso2.includes('comercial'))costoAdj=Math.round(z.c*1.08);
@@ -3328,7 +3334,7 @@ function computeRLVM(mkt, wlcScore, precioGeo) {
       : 1000; // mínimo fallback de 1,000 m²
 
   // Ratio de construcción ajustado por uso actual del lote
-  var uso = (ACTIVE_LAND && ACTIVE_LAND.uso_actual) || '';
+  var uso = (ACTIVE_LAND && ACTIVE_LAND.uso_real) || (ACTIVE_LAND && ACTIVE_LAND.uso_actual) || '';
   var RATIO_CONSTRUCCION =
     uso.includes('hotelero') || uso.includes('turístico') ? 0.45 :
     uso.includes('comercial') || uso.includes('Comercial') ? 0.65 :
@@ -3751,7 +3757,7 @@ async function medirCapasReales(landGeojson, province){
 async function fetchGisMetrics(){
   var land=ACTIVE_LAND;
   var province=(land&&land.province)||'La Altagracia';
-  var uso=(land&&land.uso_actual)||'Turístico hotelero';
+  var uso=((land&&land.uso_real)||(land&&land.uso_actual)||'Turístico hotelero');
   var area=(land&&land.area_m2&&land.area_m2>0)?land.area_m2:1000;
 
   // ── Scores base por provincia (datos reales RD) ──
@@ -5309,7 +5315,25 @@ function verCertificado(){
           +'<tr style="background:#f3fbf4"><td style="font-size:8pt;color:#666">Rango estimado (±'+bandaPct+'%)</td><td style="text-align:right;font-size:8pt;color:#666">US$ '+potBajo.toLocaleString()+' – '+potAlto.toLocaleString()+'</td><td style="text-align:right;font-size:8pt;color:#666">US$ '+m2PotBajo.toLocaleString()+'–'+m2PotAlto.toLocaleString()+'/m²</td></tr>'
           +'<tr style="background:#fff3e0;font-weight:bold"><td><strong>Ganancia potencial estimada</strong></td><td style="text-align:right;color:#e65100">US$ '+(vPot-vActual).toLocaleString()+'</td><td style="text-align:right;color:#e65100">×'+mult+' ('+pctGanancia+'% retorno)</td></tr>'
           +'</table>'
-          +'<p style="font-size:7.5pt;color:#999;margin:2px 0 10px">El rango ±'+bandaPct+'% refleja la incertidumbre propia de una estimación automatizada. El valor real puede situarse fuera de este rango según condiciones específicas del lote, del título y del momento de mercado.</p>';
+          +'<p style="font-size:7.5pt;color:#999;margin:2px 0 10px">El rango ±'+bandaPct+'% refleja la incertidumbre propia de una estimación automatizada. El valor real puede situarse fuera de este rango según condiciones específicas del lote, del título y del momento de mercado.</p>'
+          +(function(){
+            // ── Análisis de permuta: peso del terreno sobre el desarrollo ──
+            var vdp=(r.rlvm.VDP&&r.rlvm.VDP>0)?r.rlvm.VDP:0;
+            if(vdp<=0||vActual<=0)return '';
+            var pesoSobreVDP=Math.round(vActual/vdp*100);          // % del terreno sobre el valor de venta total
+            var pesoSobreVRS=vPot>0?Math.round(vActual/vPot*100):0; // % del terreno sobre el valor potencial del suelo
+            // Banda de negociación razonable (el aporte del suelo suele valorarse algo por encima de su valor actual)
+            var bandaBaja=pesoSobreVDP;
+            var bandaAlta=Math.min(100,Math.round(vActual*1.25/vdp*100));
+            return '<table style="margin:14px 0 6px"><tr><th colspan="2" style="background:#4527a0">🤝 Análisis para negociación / permuta</th></tr>'
+              +'<tr><td colspan="2" style="font-size:8.5pt;color:#444;padding:8px 10px;background:#f3e5f5;line-height:1.6">En una permuta, el dueño del terreno aporta el suelo y recibe a cambio una participación en el proyecto terminado (unidades, locales o un porcentaje de la venta). La proporción de referencia es cuánto representa el valor del terreno frente al valor total del desarrollo.</td></tr>'
+              +'<tr><td><strong>Valor del terreno aportado</strong><br><span style="font-size:8pt;color:#666">valor actual estimado del suelo</span></td><td style="text-align:right">US$ '+vActual.toLocaleString()+'</td></tr>'
+              +'<tr><td><strong>Valor del desarrollo completado (VDP)</strong><br><span style="font-size:8pt;color:#666">venta total estimada del proyecto</span></td><td style="text-align:right">US$ '+vdp.toLocaleString()+'</td></tr>'
+              +'<tr style="background:#ede7f6;font-weight:bold"><td><strong>Peso del terreno sobre el desarrollo</strong><br><span style="font-size:8pt;color:#666;font-weight:400">participación de referencia del propietario</span></td><td style="text-align:right;color:#4527a0;font-size:13pt">'+pesoSobreVDP+'%</td></tr>'
+              +'<tr><td style="font-size:8.5pt;color:#444">Banda de negociación sugerida</td><td style="text-align:right;font-size:8.5pt;color:#444">'+bandaBaja+'% – '+bandaAlta+'%</td></tr>'
+              +'</table>'
+              +'<p style="font-size:8pt;color:#555;margin:4px 0 10px;line-height:1.6">Interpretación: el terreno representa aproximadamente el <strong>'+pesoSobreVDP+'%</strong> del valor de venta del proyecto terminado. Como referencia de negociación, el propietario podría aspirar a recibir entre el <strong>'+bandaBaja+'% y el '+bandaAlta+'%</strong> del producto desarrollado (en unidades equivalentes o participación), dependiendo de quién asuma los riesgos de construcción, permisos y comercialización. Esta proporción es orientativa; el reparto final depende del acuerdo entre las partes y de una tasación formal.</p>';
+          })();
       })()
     ):'<p>Ejecuta el diagnóstico completo para ver la valoración.</p>')
     +'<h2 style="page-break-before:auto">Resumen Ejecutivo del Análisis</h2>'
@@ -5320,7 +5344,13 @@ function verCertificado(){
       var prov=land.province||'la provincia indicada';
       var areaNum=land.area_m2&&land.area_m2>0?Math.round(land.area_m2):(r.rlvm&&r.rlvm.area_m2?r.rlvm.area_m2:0);
       var area=areaNum>0?areaNum.toLocaleString()+' m²':'área no especificada';
-      var uso=land.uso_actual||'uso no especificado';
+      var usoCarto=land.uso_actual||'uso no especificado';
+      var usoRealVal=land.uso_real||'';
+      var uso=usoRealVal||usoCarto; // el análisis usa el real si existe
+      // Texto transparente: si difieren, documentar ambos
+      var usoTexto=(usoRealVal&&usoRealVal!==usoCarto)
+        ?('<strong>'+usoRealVal+'</strong> (uso real observado; el uso cartográfico/oficial registra <strong>'+usoCarto+'</strong>, lo que evidencia la desactualización típica de la cartografía. El análisis prioriza el uso real)')
+        :('<strong>'+usoCarto+'</strong>');
       var sc=r.score;
       var scLabel=sc>=80?'muy alto':sc>=65?'alto':sc>=50?'moderado':sc>=35?'bajo':'muy bajo';
       // VF31: La afectación geográfica crítica degrada el veredicto
@@ -5380,7 +5410,7 @@ function verCertificado(){
         :'El equipo técnico de ABC Territorial Intelligence NO recomienda proceder con la estructuración de '+(_ld.name||'el terreno')+' ('+((_ld.area_m2&&_ld.area_m2>0?Math.round(_ld.area_m2).toLocaleString()+' m²':'área no especificada'))+', '+(_ld.province||'—')+') en este momento. El análisis con score de '+sc+'/100 revela restricciones críticas que comprometen su viabilidad para desarrollo e inversión. Se recomienda consultar con especialistas en gestión ambiental y regularización territorial antes de cualquier decisión.';
       }
       return '<div style="line-height:1.8;font-size:11pt;color:#333">'
-        +'<p style="margin-bottom:10px">El presente análisis territorial fue realizado sobre el inmueble denominado <strong>'+landName+'</strong>, ubicado en <strong>'+prov+'</strong>, con una superficie de <strong>'+area+'</strong> y uso actual clasificado como <strong>'+uso+'</strong>. El análisis fue procesado mediante el motor de análisis multicriterio WLC (Weighted Linear Combination) de ABC Territorial Intelligence, cruzando <strong>'+numLayers+' capas GIS</strong> con datos territoriales reales de República Dominicana.</p>'
+        +'<p style="margin-bottom:10px">El presente análisis territorial fue realizado sobre el inmueble denominado <strong>'+landName+'</strong>, ubicado en <strong>'+prov+'</strong>, con una superficie de <strong>'+area+'</strong> y uso clasificado como '+usoTexto+'. El análisis fue procesado mediante el motor de análisis multicriterio WLC (Weighted Linear Combination) de ABC Territorial Intelligence, cruzando <strong>'+numLayers+' capas GIS</strong> con datos territoriales reales de República Dominicana.</p>'
         +'<p style="margin-bottom:10px">El Score WLC obtenido es de <strong>'+sc+'/100</strong>, calificado como <strong>'+scLabel.toUpperCase()+'</strong>, con veredicto de idoneidad: <strong>'+scVerdict+'</strong>. '+pca+'</p>'
         +'<p style="margin-bottom:10px">Entre los factores positivos destacados, la capa <strong>'+mejorCapa.label+'</strong> obtuvo el mayor puntaje individual ('+mejorCapa.xi+'/100), lo que evidencia condiciones favorables en este aspecto territorial. La dimensión con mayor oportunidad de mejora es <strong>'+peorCapa.label+'</strong> ('+peorCapa.xi+'/100), donde se recomienda atención específica en la planificación del desarrollo.</p>'
         +'<p style="margin-bottom:10px">'+restr+'</p>'
