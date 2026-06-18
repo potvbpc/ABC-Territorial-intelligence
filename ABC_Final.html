@@ -41,7 +41,7 @@ select.inp option{background:#0E1E2E}
 .fa2{animation:fu .33s .14s ease both}
 </style>
 </head>
-<!-- VERSION-DEPLOY: VF38 — Fix: area del reporte de propuestas con fallback robusto (RLVM + calculo geodesico) -->
+<!-- VERSION-DEPLOY: VF39 — Fix de origen: el area se calcula del poligono si falta y valida antes de guardar -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -1733,6 +1733,27 @@ async function submitTerrain(){
   }else if(window._loadedGeoJSON&&window._loadedGeoJSON.coordinates){
     geojson=window._loadedGeoJSON;
     if(window._loadedArea&&window._loadedArea>0)area=window._loadedArea;
+    // Si no vino área pero sí geometría, calcularla del polígono
+    if((!area||area<=0)){
+      try{
+        var g=window._loadedGeoJSON;
+        var anillo=(g.type==='Polygon')?g.coordinates[0]:(g.type==='MultiPolygon'?g.coordinates[0][0]:null);
+        if(anillo)area=Math.round(calcAreaM2(anillo));
+      }catch(e){}
+    }
+  }
+  // Salvaguarda final: si hay geometría pero el área sigue en 0, calcularla
+  if((!area||area<=0)&&geojson&&geojson.coordinates){
+    try{
+      var an=(geojson.type==='Polygon')?geojson.coordinates[0]:(geojson.type==='MultiPolygon'?geojson.coordinates[0][0]:null);
+      if(an)area=Math.round(calcAreaM2(an));
+    }catch(e){}
+  }
+  // Si no hay ni polígono ni área válida, avisar al usuario (no guardar en 0 silenciosamente)
+  if((!area||area<=0)&&(!geojson)){
+    if(btn){btn.textContent='Guardar terreno';btn.style.opacity='1';btn.disabled=false;}
+    alert('⚠ Para registrar el terreno necesitas dibujar/cargar su polígono o indicar el área en m². Sin área, el análisis económico no será válido.');
+    return;
   }
   var saved=null;
   var esActualizacion=(window._editingLandId!==undefined&&window._editingLandId!==null);
