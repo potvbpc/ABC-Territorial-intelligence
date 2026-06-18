@@ -41,7 +41,7 @@ select.inp option{background:#0E1E2E}
 .fa2{animation:fu .33s .14s ease both}
 </style>
 </head>
-<!-- VERSION-DEPLOY: VF37 — Propuestas por vocacion del suelo + garantia de opcion coherente con uso actual -->
+<!-- VERSION-DEPLOY: VF38 — Fix: area del reporte de propuestas con fallback robusto (RLVM + calculo geodesico) -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -5027,7 +5027,21 @@ function verReportePropuestas(){
   var r=WLC_RESULT;
   var land=ACTIVE_LAND||{};
   var props=generarPropuestasProyecto(r);
-  var area=(land.area_m2&&land.area_m2>0)?Math.round(land.area_m2):0;
+  // Área robusta: land.area_m2 → RLVM → cálculo geodésico del polígono
+  function _puntosDe(geom){
+    try{
+      var g=(geom&&geom.type==='Feature')?geom.geometry:geom;
+      if(!g||!g.coordinates)return null;
+      if(g.type==='Polygon')return g.coordinates[0];
+      if(g.type==='MultiPolygon')return g.coordinates[0][0];
+      return null;
+    }catch(e){return null;}
+  }
+  var area=0;
+  if(land.area_m2&&land.area_m2>0)area=Math.round(land.area_m2);
+  else if(r.rlvm&&r.rlvm.area_m2&&r.rlvm.area_m2>0)area=Math.round(r.rlvm.area_m2);
+  else if(land.geojson&&typeof calcAreaM2==='function'){var pp=_puntosDe(land.geojson);if(pp){try{area=Math.round(calcAreaM2(pp));}catch(e){}}}
+  if(area===0&&typeof TERRENO_DEMO!=='undefined'&&TERRENO_DEMO&&typeof calcAreaM2==='function'){var pd=_puntosDe(TERRENO_DEMO);if(pd){try{area=Math.round(calcAreaM2(pd));}catch(e){}}}
   var prov=land.province||'—';
   var lname=land.name||'Terreno';
 
