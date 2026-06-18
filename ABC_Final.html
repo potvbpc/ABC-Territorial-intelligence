@@ -41,7 +41,7 @@ select.inp option{background:#0E1E2E}
 .fa2{animation:fu .33s .14s ease both}
 </style>
 </head>
-<!-- VERSION-DEPLOY: VF35 — 5 capas nuevas: clase suelo, pendiente, poblacion, huella construida, cobertura -->
+<!-- VERSION-DEPLOY: VF36 — Capas de suelo/pendiente leen su clase del atributo y la muestran legible en el certificado -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -3620,29 +3620,53 @@ function medirProximidad(landPoly, landCentroid, layer){
 }
 
 // MÉTODO INTERSECCIÓN: si el polígono toca la zona (ambiental)
+// Traduce valores de clase (pendiente, suelo, uso) a texto legible
+function _descClase(subtype, clase){
+  var c=String(clase).toLowerCase().trim();
+  // Pendiente: si es un número o código 1-4
+  if(subtype==='pendiente'){
+    var mapaPend={'1':'pendiente llana (0-5%)','2':'pendiente suave (5-15%)','3':'pendiente moderada (15-30%)','4':'pendiente fuerte (>30%, riesgo)'};
+    if(mapaPend[c])return mapaPend[c];
+    return 'pendiente '+clase;
+  }
+  if(subtype==='clase_suelo'){
+    var mapaSuelo={'1':'suelo clase I (agrícola premium)','2':'suelo clase II (agrícola)','3':'suelo clase III','4':'suelo clase IV','5':'suelo clase V','6':'suelo clase VI','7':'suelo clase VII','8':'suelo clase VIII (no agrícola)'};
+    if(mapaSuelo[c])return mapaSuelo[c];
+    return 'clase de suelo '+clase;
+  }
+  // Para uso de suelo u otros: devolver el valor tal cual
+  return String(clase);
+}
+
 function medirInterseccion(landPoly, layer){
   try{
     var fc=layer.features;
     if(!fc||!fc.features)return null;
-    var tocado=false,pctMax=0;
+    var tocado=false,pctMax=0,claseDominante=null,pctClase=0;
     var areaLote=turf.area(landPoly);
     fc.features.forEach(function(f){
       try{
         if(turf.booleanIntersects(landPoly,f)){
           tocado=true;
+          var pEste=0;
           try{
             var inter=null;
             try{inter=turf.intersect(turf.featureCollection([landPoly,f]));}
             catch(e7){try{inter=turf.intersect(landPoly,f);}catch(e6){}}
-            if(inter&&areaLote>0){var p=Math.round((turf.area(inter)/areaLote)*100);if(p>pctMax)pctMax=p;}
+            if(inter&&areaLote>0){pEste=Math.round((turf.area(inter)/areaLote)*100);if(pEste>pctMax)pctMax=pEste;}
           }catch(e){}
+          // Capturar la clase/atributo del feature con mayor solapamiento
+          if(pEste>=pctClase){
+            var props=f.properties||{};
+            var clase=props.clase_pend||props.clase||props.rango||props.slope||props.pendiente||props.CLASE||props.clase_suelo||props.uso_suelo||props.USO||props.categoria||props.descripcion||props.desc||null;
+            if(clase!==null&&clase!==undefined){claseDominante=clase;pctClase=pEste;}
+          }
         }
       }catch(e){}
     });
     if(!tocado)return {score:100,pct:0}; // no toca = sin restricción
-    // Toca: score bajo según severidad
     var sevScore={critica:5,condicionada:35,riesgo:55};
-    return {score:sevScore[layer.severity]||40,pct:pctMax,tocado:true,severity:layer.severity};
+    return {score:sevScore[layer.severity]||40,pct:pctMax,tocado:true,severity:layer.severity,clase:claseDominante};
   }catch(e){console.warn('medirInterseccion:',e);return null;}
 }
 
@@ -3693,7 +3717,8 @@ async function medirCapasReales(landGeojson, province){
           name:layer.name,dimension:layer.dimension,subtype:layer.subtype,
           method:layer.measure_method,weight:layer.weight||0.05,
           score:medida.score,dist:medida.dist,count:medida.count,
-          pct:medida.pct,tocado:medida.tocado,severity:medida.severity
+          pct:medida.pct,tocado:medida.tocado,severity:medida.severity,
+          clase:medida.clase
         });
       }
     });
@@ -3809,7 +3834,12 @@ async function fetchGisMetrics(){
           var prom=Math.round(porDim[dim].sum/porDim[dim].n);
           var mid=dimToMetric[dim];
           var det=porDim[dim].detalles.map(function(d){
-            return d.name+(d.dist!==undefined?' ('+d.dist+'m)':d.count!==undefined?' ('+d.count+' cercanos)':'');
+            var extra='';
+            if(d.clase!==null&&d.clase!==undefined&&d.clase!=='')extra=' · '+_descClase(d.subtype,d.clase);
+            else if(d.dist!==undefined)extra=' ('+d.dist+'m)';
+            else if(d.count!==undefined)extra=' ('+d.count+' cercanos)';
+            else if(d.pct!==undefined&&d.pct>0)extra=' ('+d.pct+'% del lote)';
+            return d.name+extra;
           }).join(', ');
           if(mid&&metrics[mid]){
             metrics[mid]={raw:prom,desc:'📡 Medición real · '+det,layer:metrics[mid].layer,real:true};
