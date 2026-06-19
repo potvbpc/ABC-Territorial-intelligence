@@ -41,7 +41,7 @@ select.inp option{background:#0E1E2E}
 .fa2{animation:fu .33s .14s ease both}
 </style>
 </head>
-<!-- VERSION-DEPLOY: VF42 — Distritos municipales de La Altagracia y El Seibo -->
+<!-- VERSION-DEPLOY: VF43 — Fix costo financiero (saldo promedio) + manejo honesto de desarrollo no rentable -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -3418,7 +3418,11 @@ function computeRLVM(mkt, wlcScore, precioGeo) {
     AREA_M2 > 20000 ? 30 :
     AREA_M2 > 10000 ? 24 :
     AREA_M2 > 5000  ? 18 : 12;
-  var CF = CC * mkt.tasa_interes_anual * (meses_construccion / 12);
+  // CF sobre saldo PROMEDIO del préstamo: el capital se desembolsa
+  // gradualmente durante la obra, no el 100% desde el día 1. Factor 0.55
+  // aproxima el saldo medio (estándar en evaluación financiera de proyectos).
+  var FACTOR_SALDO_PROMEDIO = 0.55;
+  var CF = CC * mkt.tasa_interes_anual * (meses_construccion / 12) * FACTOR_SALDO_PROMEDIO;
 
   // MD — Margen del Desarrollador
   var MD = VDP * mkt.margen_desarrollador;
@@ -3429,6 +3433,10 @@ function computeRLVM(mkt, wlcScore, precioGeo) {
   // VRS — Valor Residual del Suelo
   var VRS = VDP - CC - CF - MD - RR;
   var VRS_m2 = VRS / AREA_M2;
+  // Detectar si el desarrollo NO es rentable (el suelo no genera valor residual).
+  // Ocurre en zonas donde el precio de venta apenas cubre el costo de construir.
+  var VRS_real = VRS; // puede ser negativo
+  var desarrollo_no_rentable = (VRS <= (VDP * 0.03)); // VRS menor al 3% del VDP = marginal o inviable
 
   // ── VALOR ACTUAL DE MERCADO DEL SUELO (método independiente) ──
   // NO se deriva del VRS (eso inflaba el precio). Se calcula con precios
@@ -3515,6 +3523,7 @@ function computeRLVM(mkt, wlcScore, precioGeo) {
     MD:  Math.round(MD),
     RR:  Math.round(RR),
     VRS: Math.max(0, Math.round(VRS)),
+    VRS_real: Math.round(VRS_real), desarrollo_no_rentable: desarrollo_no_rentable,
     VRS_m2: Math.max(0, Math.round(VRS_m2)),
     // Para compatibilidad con el sistema
     valor_suelo_actual: Math.round(valor_suelo_actual),
@@ -5369,11 +5378,14 @@ function verCertificado(){
           +'<tr style="background:#f3fbf4"><td style="font-size:8pt;color:#666">Rango estimado (±'+bandaPct+'%)</td><td style="text-align:right;font-size:8pt;color:#666">US$ '+potBajo.toLocaleString()+' – '+potAlto.toLocaleString()+'</td><td style="text-align:right;font-size:8pt;color:#666">US$ '+m2PotBajo.toLocaleString()+'–'+m2PotAlto.toLocaleString()+'/m²</td></tr>'
           +'<tr style="background:#fff3e0;font-weight:bold"><td><strong>Ganancia potencial estimada</strong></td><td style="text-align:right;color:#e65100">US$ '+(vPot-vActual).toLocaleString()+'</td><td style="text-align:right;color:#e65100">×'+mult+' ('+pctGanancia+'% retorno)</td></tr>'
           +'</table>'
+          +((r.rlvm&&r.rlvm.desarrollo_no_rentable)?'<div style="background:#FFF3E0;border:1px solid #FFB74D;border-radius:6px;padding:9px 12px;margin:6px 0 10px"><strong style="color:#E65100;font-size:9pt">⚠ Desarrollo convencional marginal en esta zona.</strong><span style="font-size:8.5pt;color:#5a4a2a"> El precio de venta estimado en '+prov+' apenas supera el costo de construcción, por lo que el método residual arroja un valor de suelo muy bajo o nulo. Esto NO significa que el terreno carezca de valor: significa que un desarrollo inmobiliario convencional (vivienda/comercial para venta) no es la vía más rentable aquí. El valor del terreno proviene de su uso actual (agropecuario, forestal) o de proyectos de menor costo. El "Valor actual de mercado del suelo" de arriba es la referencia válida para este lote, no el residual.</span></div>':'')
           +'<p style="font-size:7.5pt;color:#999;margin:2px 0 10px">El rango ±'+bandaPct+'% refleja la incertidumbre propia de una estimación automatizada. El valor real puede situarse fuera de este rango según condiciones específicas del lote, del título y del momento de mercado.</p>'
           +(function(){
             // ── Análisis de permuta: peso del terreno sobre el desarrollo ──
             var vdp=(r.rlvm.VDP&&r.rlvm.VDP>0)?r.rlvm.VDP:0;
             if(vdp<=0||vActual<=0)return '';
+            // Si el desarrollo no es rentable, la permuta no aplica
+            if(r.rlvm&&r.rlvm.desarrollo_no_rentable)return '<div style="background:#f5f5f5;border-radius:6px;padding:10px 12px;margin:14px 0 6px;font-size:8.5pt;color:#666">🤝 <strong>Permuta:</strong> en esta zona el desarrollo convencional no genera margen suficiente, por lo que un esquema de permuta (terreno por unidades) no resulta atractivo para el propietario. Una venta directa del terreno a su valor actual de mercado es la vía recomendada.</div>';
             var pesoSobreVDP=Math.round(vActual/vdp*100);          // % del terreno sobre el valor de venta total
             var pesoSobreVRS=vPot>0?Math.round(vActual/vPot*100):0; // % del terreno sobre el valor potencial del suelo
             // Banda de negociación razonable (el aporte del suelo suele valorarse algo por encima de su valor actual)
