@@ -41,7 +41,7 @@ select.inp option{background:#0E1E2E}
 .fa2{animation:fu .33s .14s ease both}
 </style>
 </head>
-<!-- VERSION-DEPLOY: VF40 — Uso real vs cartografico + analisis de permuta (peso del terreno sobre el desarrollo) -->
+<!-- VERSION-DEPLOY: VF41 — 32 provincias completas + municipios desplegables por provincia -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -1427,14 +1427,15 @@ function rUpload(){
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px">
       <div>
         <div style="font-size:9px;color:${C.tm};font-weight:600;text-transform:uppercase;letter-spacing:.08em;margin-bottom:5px">Provincia *</div>
-        <select class="inp" id="land-prov">
+        <select class="inp" id="land-prov" onchange="actualizarMunicipios()">
           <option value="">Selecciona...</option>
-          ${["La Altagracia","Santo Domingo","Santiago","La Romana","San Pedro de Macorís","Puerto Plata","La Vega","San Cristóbal","Duarte","Espaillat"].map(p=>`<option>${p}</option>`).join("")}
+          ${Object.keys(RD_TERRITORIO).map(p=>`<option>${p}</option>`).join("")}
         </select>
       </div>
       <div>
-        <div style="font-size:9px;color:${C.tm};font-weight:600;text-transform:uppercase;letter-spacing:.08em;margin-bottom:5px">Municipio</div>
-        <input class="inp" id="land-mun" placeholder="Ej: Bávaro"/>
+        <div style="font-size:9px;color:${C.tm};font-weight:600;text-transform:uppercase;letter-spacing:.08em;margin-bottom:5px">Municipio / Distrito Municipal</div>
+        <input class="inp" id="land-mun" list="mun-datalist" placeholder="Selecciona provincia primero" autocomplete="off"/>
+        <datalist id="mun-datalist"></datalist>
       </div>
       <div>
         <div style="font-size:9px;color:${C.tm};font-weight:600;text-transform:uppercase;letter-spacing:.08em;margin-bottom:5px">Uso cartográfico / oficial</div>
@@ -3206,6 +3207,59 @@ var RLVM_CACHE_TTL = 3600000; // 1 hour cache
 // p = precio venta m² (USD) | c = costo construcción m² (USD)
 // t = tasa interés anual | m = margen desarrollador | r = reserva riesgos
 // Fuentes: ACOPROVI, Banco Central RD, ONE, BHD León Q1-2025
+// ════════════════════════════════════════════════════════════════
+// DIVISIÓN TERRITORIAL DE LA REPÚBLICA DOMINICANA (VF41)
+// 32 provincias (incluye Distrito Nacional) con sus municipios.
+// Fuente: División Político-Administrativa, ONE.
+// ════════════════════════════════════════════════════════════════
+var RD_TERRITORIO={
+  "Distrito Nacional":["Santo Domingo de Guzmán"],
+  "Azua":["Azua de Compostela","Las Charcas","Las Yayas de Viajama","Padre Las Casas","Peralta","Pueblo Viejo","Sabana Yegua","Estebanía","Guayabal","Tábara Arriba"],
+  "Bahoruco":["Neiba","Galván","Los Ríos","Tamayo","Villa Jaragua"],
+  "Barahona":["Barahona","Cabral","Enriquillo","Fundación","Jaquimeyes","La Ciénaga","Las Salinas","Paraíso","Polo","Vicente Noble","El Peñón"],
+  "Dajabón":["Dajabón","Loma de Cabrera","Partido","Restauración","El Pino"],
+  "Duarte":["San Francisco de Macorís","Arenoso","Castillo","Eugenio María de Hostos","Las Guáranas","Pimentel","Villa Riva"],
+  "Elías Piña":["Comendador","Bánica","El Llano","Hondo Valle","Juan Santiago","Pedro Santana"],
+  "El Seibo":["El Seibo","Miches"],
+  "Espaillat":["Moca","Cayetano Germosén","Gaspar Hernández","Jamao al Norte"],
+  "Hato Mayor":["Hato Mayor del Rey","El Valle","Sabana de la Mar"],
+  "Hermanas Mirabal":["Salcedo","Tenares","Villa Tapia"],
+  "Independencia":["Jimaní","Cristóbal","Duvergé","La Descubierta","Mella","Postrer Río"],
+  "La Altagracia":["Higüey","San Rafael del Yuma","Verón-Punta Cana","Bávaro"],
+  "La Romana":["La Romana","Guaymate","Villa Hermosa"],
+  "La Vega":["La Vega","Constanza","Jarabacoa","Jima Abajo"],
+  "María Trinidad Sánchez":["Nagua","Cabrera","El Factor","Río San Juan"],
+  "Monseñor Nouel":["Bonao","Maimón","Piedra Blanca"],
+  "Monte Cristi":["San Fernando de Monte Cristi","Castañuelas","Guayubín","Las Matas de Santa Cruz","Pepillo Salcedo","Villa Vásquez"],
+  "Monte Plata":["Monte Plata","Bayaguana","Sabana Grande de Boyá","Yamasá","Peralvillo"],
+  "Pedernales":["Pedernales","Oviedo"],
+  "Peravia":["Baní","Nizao","Matanzas","Paya","Sabana Buey"],
+  "Puerto Plata":["San Felipe de Puerto Plata","Altamira","Guananico","Imbert","Los Hidalgos","Luperón","Sosúa","Villa Isabela","Villa Montellano"],
+  "Samaná":["Santa Bárbara de Samaná","Las Terrenas","Sánchez"],
+  "Sánchez Ramírez":["Cotuí","Cevicos","Fantino","La Mata"],
+  "San Cristóbal":["San Cristóbal","Bajos de Haina","Cambita Garabitos","Los Cacaos","Sabana Grande de Palenque","San Gregorio de Nigua","Villa Altagracia","Yaguate","El Carril"],
+  "San José de Ocoa":["San José de Ocoa","Rancho Arriba","Sabana Larga"],
+  "San Juan":["San Juan de la Maguana","Bohechío","El Cercado","Juan de Herrera","Las Matas de Farfán","Vallejuelo"],
+  "San Pedro de Macorís":["San Pedro de Macorís","Consuelo","Guayacanes","Quisqueya","Ramón Santana","Los Llanos"],
+  "Santiago":["Santiago de los Caballeros","Bisonó","Jánico","Licey al Medio","Puñal","Sabana Iglesia","San José de las Matas","Tamboril","Villa González","Baitoa"],
+  "Santiago Rodríguez":["San Ignacio de Sabaneta","Los Almácigos","Monción"],
+  "Santo Domingo":["Santo Domingo Este","Santo Domingo Norte","Santo Domingo Oeste","Boca Chica","Los Alcarrizos","Pedro Brand","San Antonio de Guerra","San Luis"],
+  "Valverde":["Mao","Esperanza","Laguna Salada"]
+};
+
+// Actualiza el datalist de municipios según la provincia seleccionada
+function actualizarMunicipios(){
+  var prov=document.getElementById('land-prov');
+  var dl=document.getElementById('mun-datalist');
+  var munInp=document.getElementById('land-mun');
+  if(!prov||!dl)return;
+  var municipios=RD_TERRITORIO[prov.value]||[];
+  dl.innerHTML=municipios.map(function(m){return '<option value="'+m+'"></option>';}).join('');
+  if(munInp){
+    munInp.placeholder=municipios.length>0?'Selecciona o escribe el municipio':'Selecciona provincia primero';
+  }
+}
+
 var RD_MARKET={
   // p = precio venta m² del producto TERMINADO gama media (USD), valores conservadores 2025
   // Zonas turísticas
@@ -5973,13 +6027,21 @@ function gestionTerreno(idx){
   ov.addEventListener('click',function(e){if(e.target===ov)ov.remove();});
 }
 
+function _edActualizarMun(){
+  var prov=document.getElementById('ed-prov');
+  var dl=document.getElementById('ed-mun-datalist');
+  if(!prov||!dl)return;
+  var municipios=RD_TERRITORIO[prov.value]||[];
+  dl.innerHTML=municipios.map(function(m){return '<option value="'+m+'"></option>';}).join('');
+}
+
 function editarTerreno(idx){
   var lands=USER_LANDS.length>0?USER_LANDS:(ACTIVE_LAND?[ACTIVE_LAND]:[]);
   var land=lands[idx];if(!land)return;
   var g=document.getElementById('gest-ov');if(g)g.remove();
   var ov=document.createElement('div');ov.id='edit-ov';
   ov.style.cssText='position:fixed;inset:0;z-index:9999;background:rgba(6,16,25,.93);display:flex;align-items:center;justify-content:center;padding:20px;overflow-y:auto';
-  var provincias=['La Altagracia','La Romana','Samaná','María Trinidad Sánchez','Distrito Nacional','Santo Domingo','Santiago','San Cristóbal','La Vega','Puerto Plata','San Pedro de Macorís','Peravia','Espaillat','Duarte','Monseñor Nouel','Sánchez Ramírez','El Seibo','Hato Mayor','Monte Plata','San José de Ocoa','Azua','Barahona','Bahoruco','Independencia','Pedernales'];
+  var provincias=Object.keys(RD_TERRITORIO);
   var usos=['Turístico hotelero','Turístico recreativo','Ecoturismo','Comercial local','Comercial mixto','Centros comerciales','Oficinas y servicios','Residencial unifamiliar','Residencial multifamiliar','Vivienda social','Industrial ligera','Industrial mediana','Agropecuario','Forestal','Conservación ambiental'];
   var optProv=provincias.map(function(p){return '<option'+(p===land.province?' selected':'')+'>'+p+'</option>';}).join('');
   var optUso=usos.map(function(u){return '<option'+(u===land.uso_actual?' selected':'')+'>'+u+'</option>';}).join('');
@@ -5988,8 +6050,8 @@ function editarTerreno(idx){
     +'<div style="display:flex;flex-direction:column;gap:14px">'
       +'<div><div style="font-size:10px;color:#8FA5BE;font-weight:700;text-transform:uppercase;margin-bottom:4px">Nombre del terreno</div><input id="ed-name" value="'+(land.name||'').replace(/"/g,'&quot;')+'" style="width:100%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.13);color:#E8EDF3;padding:10px 12px;border-radius:8px;font-size:13px"/></div>'
       +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">'
-        +'<div><div style="font-size:10px;color:#8FA5BE;font-weight:700;text-transform:uppercase;margin-bottom:4px">Provincia</div><select id="ed-prov" style="width:100%;background:#0E1E2E;border:1px solid rgba(255,255,255,.13);color:#E8EDF3;padding:10px 12px;border-radius:8px;font-size:13px">'+optProv+'</select></div>'
-        +'<div><div style="font-size:10px;color:#8FA5BE;font-weight:700;text-transform:uppercase;margin-bottom:4px">Municipio</div><input id="ed-mun" value="'+(land.municipio||'').replace(/"/g,'&quot;')+'" style="width:100%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.13);color:#E8EDF3;padding:10px 12px;border-radius:8px;font-size:13px"/></div>'
+        +'<div><div style="font-size:10px;color:#8FA5BE;font-weight:700;text-transform:uppercase;margin-bottom:4px">Provincia</div><select id="ed-prov" onchange="_edActualizarMun()" style="width:100%;background:#0E1E2E;border:1px solid rgba(255,255,255,.13);color:#E8EDF3;padding:10px 12px;border-radius:8px;font-size:13px">'+optProv+'</select></div>'
+        +'<div><div style="font-size:10px;color:#8FA5BE;font-weight:700;text-transform:uppercase;margin-bottom:4px">Municipio</div><input id="ed-mun" list="ed-mun-datalist" value="'+(land.municipio||'').replace(/"/g,'&quot;')+'" style="width:100%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.13);color:#E8EDF3;padding:10px 12px;border-radius:8px;font-size:13px"/><datalist id="ed-mun-datalist">'+((RD_TERRITORIO[land.province]||[]).map(function(m){return '<option value="'+m+'"></option>';}).join(''))+'</datalist></div>'
       +'</div>'
       +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">'
         +'<div><div style="font-size:10px;color:#8FA5BE;font-weight:700;text-transform:uppercase;margin-bottom:4px">Uso actual</div><select id="ed-uso" style="width:100%;background:#0E1E2E;border:1px solid rgba(255,255,255,.13);color:#E8EDF3;padding:10px 12px;border-radius:8px;font-size:13px">'+optUso+'</select></div>'
