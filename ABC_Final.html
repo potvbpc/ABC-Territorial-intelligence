@@ -41,7 +41,7 @@ select.inp option{background:#0E1E2E}
 .fa2{animation:fu .33s .14s ease both}
 </style>
 </head>
-<!-- VERSION-DEPLOY: VF43 — Fix costo financiero (saldo promedio) + manejo honesto de desarrollo no rentable -->
+<!-- VERSION-DEPLOY: VF44 — Fix: variable prov no definida en aviso de no rentabilidad del certificado -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -5378,7 +5378,7 @@ function verCertificado(){
           +'<tr style="background:#f3fbf4"><td style="font-size:8pt;color:#666">Rango estimado (±'+bandaPct+'%)</td><td style="text-align:right;font-size:8pt;color:#666">US$ '+potBajo.toLocaleString()+' – '+potAlto.toLocaleString()+'</td><td style="text-align:right;font-size:8pt;color:#666">US$ '+m2PotBajo.toLocaleString()+'–'+m2PotAlto.toLocaleString()+'/m²</td></tr>'
           +'<tr style="background:#fff3e0;font-weight:bold"><td><strong>Ganancia potencial estimada</strong></td><td style="text-align:right;color:#e65100">US$ '+(vPot-vActual).toLocaleString()+'</td><td style="text-align:right;color:#e65100">×'+mult+' ('+pctGanancia+'% retorno)</td></tr>'
           +'</table>'
-          +((r.rlvm&&r.rlvm.desarrollo_no_rentable)?'<div style="background:#FFF3E0;border:1px solid #FFB74D;border-radius:6px;padding:9px 12px;margin:6px 0 10px"><strong style="color:#E65100;font-size:9pt">⚠ Desarrollo convencional marginal en esta zona.</strong><span style="font-size:8.5pt;color:#5a4a2a"> El precio de venta estimado en '+prov+' apenas supera el costo de construcción, por lo que el método residual arroja un valor de suelo muy bajo o nulo. Esto NO significa que el terreno carezca de valor: significa que un desarrollo inmobiliario convencional (vivienda/comercial para venta) no es la vía más rentable aquí. El valor del terreno proviene de su uso actual (agropecuario, forestal) o de proyectos de menor costo. El "Valor actual de mercado del suelo" de arriba es la referencia válida para este lote, no el residual.</span></div>':'')
+          +((r.rlvm&&r.rlvm.desarrollo_no_rentable)?'<div style="background:#FFF3E0;border:1px solid #FFB74D;border-radius:6px;padding:9px 12px;margin:6px 0 10px"><strong style="color:#E65100;font-size:9pt">⚠ Desarrollo convencional marginal en esta zona.</strong><span style="font-size:8.5pt;color:#5a4a2a"> El precio de venta estimado en '+((ACTIVE_LAND&&ACTIVE_LAND.province)||'esta zona')+' apenas supera el costo de construcción, por lo que el método residual arroja un valor de suelo muy bajo o nulo. Esto NO significa que el terreno carezca de valor: significa que un desarrollo inmobiliario convencional (vivienda/comercial para venta) no es la vía más rentable aquí. El valor del terreno proviene de su uso actual (agropecuario, forestal) o de proyectos de menor costo. El "Valor actual de mercado del suelo" de arriba es la referencia válida para este lote, no el residual.</span></div>':'')
           +'<p style="font-size:7.5pt;color:#999;margin:2px 0 10px">El rango ±'+bandaPct+'% refleja la incertidumbre propia de una estimación automatizada. El valor real puede situarse fuera de este rango según condiciones específicas del lote, del título y del momento de mercado.</p>'
           +(function(){
             // ── Análisis de permuta: peso del terreno sobre el desarrollo ──
