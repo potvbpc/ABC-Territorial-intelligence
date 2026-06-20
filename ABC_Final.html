@@ -41,7 +41,7 @@ select.inp option{background:#0E1E2E}
 .fa2{animation:fu .33s .14s ease both}
 </style>
 </head>
-<!-- VERSION-DEPLOY: VF44 — Fix: variable prov no definida en aviso de no rentabilidad del certificado -->
+<!-- VERSION-DEPLOY: VF45 — Coherencia del certificado: veredicto/recomendacion sin contradicciones cuando VRS bajo o sin restricciones -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -5429,7 +5429,19 @@ function verCertificado(){
       } else if(afectCondicionada){
         scVerdict='APTO CONDICIONADO — el terreno está en zona de amortiguamiento; el desarrollo requiere autorización ambiental previa y usos de baja intensidad.';
       } else {
-        scVerdict=sc>=75?'APTO para estructuración y publicación al marketplace':sc>=55?'APTO CONDICIONAL — requiere validación de restricciones detectadas':'NO APTO — se recomienda revisar las restricciones críticas antes de avanzar';
+        var hayAlertas=(r.restrictions&&r.restrictions.length>0)||(r.afectacion&&r.afectacion.afectado);
+        var noRentable=(r.rlvm&&r.rlvm.desarrollo_no_rentable);
+        if(sc>=75){
+          scVerdict='APTO para estructuración y publicación al marketplace';
+        } else if(sc>=55){
+          scVerdict=noRentable
+            ?'APTO PARA USOS DE BAJO COSTO — el desarrollo inmobiliario convencional no es rentable en esta zona; el terreno es apto para usos agroproductivos, energéticos o de menor inversión'
+            :(hayAlertas
+              ?'APTO CONDICIONAL — requiere validar las restricciones detectadas'
+              :'APTO CONDICIONAL — calidad territorial moderada; conviene un estudio de factibilidad antes de desarrollar');
+        } else {
+          scVerdict='NO APTO — se recomienda revisar las limitaciones del terreno antes de avanzar';
+        }
       }
       var mejorCapa=r.breakdown.reduce(function(a,b){return(b.xi>a.xi)?b:a;},{xi:0,label:'—'});
       var peorCapa=r.breakdown.filter(function(l){return !l.label.toLowerCase().includes('proteg')&&!l.label.toLowerCase().includes('riesgo');}).reduce(function(a,b){return(b.xi<a.xi)?b:a;},{xi:100,label:'—'});
@@ -5461,7 +5473,7 @@ function verCertificado(){
         +((r.afectacion&&r.afectacion.afectado&&r.afectacion.maxSeveridad==='critica')?' <strong style="color:#C0392B">⚠ IMPORTANTE: este valor de desarrollo es teórico y NO aplica mientras el terreno esté afectado por un área protegida. El valor real de un terreno con restricción ambiental crítica es sustancialmente menor y depende de los usos de conservación permitidos.</strong>':'')
       ):'Los datos de valoración RLVM no están disponibles. Ejecuta el análisis completo.';
       var _ld=ACTIVE_LAND||{};
-      var vrsTexto=r.rlvm&&r.rlvm.VRS>0?(' Con un valor residual potencial de US$ '+r.rlvm.VRS.toLocaleString()+' (US$'+r.rlvm.VRS_m2.toLocaleString()+'/m²)'):'.';
+      var vrsTexto=r.rlvm&&r.rlvm.VRS>0?(' Con un valor residual potencial de US$ '+r.rlvm.VRS.toLocaleString()+' (US$'+r.rlvm.VRS_m2.toLocaleString()+'/m²)'):' para usos coherentes con su vocación';
       var recomendacion;
       if(afectCritica){
         var nombresAfect=r.afectacion.conflictos.map(function(c){return c.name;}).join(', ');
@@ -5472,7 +5484,9 @@ function verCertificado(){
         recomendacion=sc>=75
         ?'El equipo técnico de ABC Territorial Intelligence recomienda PROCEDER con la estructuración del proyecto '+(_ld.name||'indicado')+'.'+vrsTexto+', el terreno de '+area+' en '+prov+' cumple con los criterios de idoneidad territorial y presenta condiciones favorables para su publicación en el Marketplace de Inversión ABC. Próximos pasos: subir título de propiedad, plano catastral certificado y mínimo 3 fotografías del inmueble.'
         :sc>=55
-        ?'El equipo técnico de ABC Territorial Intelligence recomienda REVISIÓN CONDICIONADA para '+(_ld.name||'el terreno')+' ('+((_ld.area_m2&&_ld.area_m2>0?Math.round(_ld.area_m2).toLocaleString()+' m²':'área no especificada'))+', '+(_ld.province||'—')+'). El terreno presenta potencial'+vrsTexto+', pero existen condiciones que deben atenderse antes de publicar. Se sugiere verificar las restricciones identificadas con MIMARENA, INDRHI y la Dirección de Catastro, y realizar un estudio de factibilidad ambiental complementario.'
+        ?((r.rlvm&&r.rlvm.desarrollo_no_rentable)
+          ?'El equipo técnico de ABC Territorial Intelligence recomienda evaluar '+(_ld.name||'el terreno')+' ('+((_ld.area_m2&&_ld.area_m2>0?Math.round(_ld.area_m2).toLocaleString()+' m²':'área no especificada'))+', '+(_ld.province||'—')+') con un enfoque distinto al desarrollo inmobiliario convencional. El análisis indica que, en esta zona, el precio de venta de producto terminado apenas supera el costo de construcción, por lo que un desarrollo para venta no genera margen suficiente. Sin embargo, el terreno conserva su valor de mercado actual (US$'+(r.rlvm.precio_suelo_m2||0)+'/m²) y resulta apto para usos de menor costo y mayor coherencia con su vocación: proyectos agroindustriales, energía renovable o aprovechamiento agropecuario. Se recomienda orientar la inversión hacia estas alternativas y validar el valor con una tasación CODIA/ITADO.'
+          :'El equipo técnico de ABC Territorial Intelligence recomienda REVISIÓN CONDICIONADA para '+(_ld.name||'el terreno')+' ('+((_ld.area_m2&&_ld.area_m2>0?Math.round(_ld.area_m2).toLocaleString()+' m²':'área no especificada'))+', '+(_ld.province||'—')+'). El terreno presenta potencial'+vrsTexto+', pero existen condiciones que deben atenderse antes de publicar. Se sugiere verificar las restricciones identificadas con MIMARENA, INDRHI y la Dirección de Catastro, y realizar un estudio de factibilidad ambiental complementario.')
         :'El equipo técnico de ABC Territorial Intelligence NO recomienda proceder con la estructuración de '+(_ld.name||'el terreno')+' ('+((_ld.area_m2&&_ld.area_m2>0?Math.round(_ld.area_m2).toLocaleString()+' m²':'área no especificada'))+', '+(_ld.province||'—')+') en este momento. El análisis con score de '+sc+'/100 revela restricciones críticas que comprometen su viabilidad para desarrollo e inversión. Se recomienda consultar con especialistas en gestión ambiental y regularización territorial antes de cualquier decisión.';
       }
       return '<div style="line-height:1.8;font-size:11pt;color:#333">'
