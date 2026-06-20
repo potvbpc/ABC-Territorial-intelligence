@@ -41,7 +41,7 @@ select.inp option{background:#0E1E2E}
 .fa2{animation:fu .33s .14s ease both}
 </style>
 </head>
-<!-- VERSION-DEPLOY: VF45 — Coherencia del certificado: veredicto/recomendacion sin contradicciones cuando VRS bajo o sin restricciones -->
+<!-- VERSION-DEPLOY: VF46 — Propuestas coherentes con rentabilidad: penaliza desarrollo convencional cuando no es rentable -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -4272,6 +4272,10 @@ function generarPropuestasProyecto(r){
   var score=r.score||0;
   var precioSuelo=(r.rlvm&&r.rlvm.precio_suelo_m2)?r.rlvm.precio_suelo_m2:50;
   var hectareas=area/10000;
+  // VF46: si el desarrollo convencional no es rentable, penalizar fuerte
+  // las propuestas que dependen de vender producto terminado con margen.
+  var noRentable=(r.rlvm&&r.rlvm.desarrollo_no_rentable);
+  var idsVentaConvencional={vivienda_social:1,multifamiliar:1,urbanizacion:1,complejo_turistico:1,villas:1,comercial:1};
 
   // ── Scores por dimensión desde el breakdown REAL del lote ──
   function scoreDe(claves){
@@ -4319,7 +4323,10 @@ function generarPropuestasProyecto(r){
   // ENCAJE con los datos reales del lote (déficit + viabilidad).
   // ════════════════════════════════════════════════════════════
   var C=[];
-  function add(o){C.push(o);}
+  function add(o){
+    if(noRentable&&idsVentaConvencional[o.id]){o.fit=Math.round(o.fit*0.25);o.no_rentable_penalizado=true;}
+    C.push(o);
+  }
 
   // ───────── SISTEMA 1: EQUIPAMIENTO SOCIAL ─────────
   add({id:'educacion',sistema:'Equipamiento social',icon:'🏫',
