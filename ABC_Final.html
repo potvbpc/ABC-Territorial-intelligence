@@ -41,7 +41,7 @@ select.inp option{background:#0E1E2E}
 .fa2{animation:fu .33s .14s ease both}
 </style>
 </head>
-<!-- VERSION-DEPLOY: VF46 — Propuestas coherentes con rentabilidad: penaliza desarrollo convencional cuando no es rentable -->
+<!-- VERSION-DEPLOY: VF47 — Banco de proyectos publicos para terrenos municipales/estatales + fix vocacion parques -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -1443,8 +1443,11 @@ function rUpload(){
       </div>
     </div>
     <div style="background:rgba(242,201,76,.06);border:1px solid rgba(242,201,76,.2);border-radius:8px;padding:11px 13px;margin-bottom:12px">
+      <div style="font-size:9px;color:#4FC3F7;font-weight:700;text-transform:uppercase;letter-spacing:.08em;margin-bottom:5px">Régimen de propiedad</div>
+      <select class="inp" id="land-regimen" style="margin-bottom:12px"><option value="privado">Privado (inversión particular)</option><option value="municipal">Municipal / Ayuntamiento (uso público)</option><option value="estatal">Estatal / Gobierno central (uso público)</option><option value="comunitario">Comunitario / ONG</option></select>
+      <div style="font-size:9px;color:#4FC3F7;margin-bottom:12px;line-height:1.5;margin-top:-6px">Si el terreno es público (municipal o estatal), las propuestas se orientarán a equipamiento e infraestructura de uso público, no a negocios privados.</div>
       <div style="font-size:9px;color:#F2C94C;font-weight:700;text-transform:uppercase;letter-spacing:.08em;margin-bottom:5px">Uso real / predominante observado <span style="color:${C.tm};font-weight:400;text-transform:none">— recomendado</span></div>
-      <select class="inp" id="land-uso-real"><option value="">— Igual al cartográfico (o no verificado) —</option><option>Solar baldío / sin uso</option><option>Residencial unifamiliar</option><option>Residencial multifamiliar</option><option>Vivienda social</option><option>Comercial local</option><option>Comercial mixto</option><option>Oficinas y servicios</option><option>Industrial ligera</option><option>Agroindustrial</option><option>Turístico hotelero</option><option>Turístico recreativo</option><option>Ecoturismo</option><option>Villas turísticas</option><option>Equipamiento educativo</option><option>Equipamiento de salud</option><option>Agropecuario</option><option>Forestal</option><option>Conservación ambiental</option><option>Uso extractivo minero</option><option>Uso mixto residencial-comercial</option><option>Uso mixto turístico-comercial</option></select>
+      <select class="inp" id="land-uso-real"><option value="">— Igual al cartográfico (o no verificado) —</option><option>Solar baldío / sin uso</option><option>Reservado para equipamiento público</option><option>Residencial unifamiliar</option><option>Residencial multifamiliar</option><option>Vivienda social</option><option>Comercial local</option><option>Comercial mixto</option><option>Oficinas y servicios</option><option>Industrial ligera</option><option>Agroindustrial</option><option>Turístico hotelero</option><option>Turístico recreativo</option><option>Ecoturismo</option><option>Villas turísticas</option><option>Equipamiento educativo</option><option>Equipamiento de salud</option><option>Agropecuario</option><option>Forestal</option><option>Conservación ambiental</option><option>Uso extractivo minero</option><option>Uso mixto residencial-comercial</option><option>Uso mixto turístico-comercial</option></select>
       <div style="font-size:9px;color:${C.tm};margin-top:5px;line-height:1.5">En RD la cartografía suele estar desactualizada. Si el uso real difiere del mapa oficial (ej: el mapa dice forestal pero es un solar baldío), indícalo aquí. El análisis priorizará el uso real observado.</div>
     </div>
     <div>
@@ -1722,6 +1725,7 @@ async function submitTerrain(){
   var prov=document.getElementById('land-prov')?document.getElementById('land-prov').value:'';
   var uso=document.getElementById('land-uso')?document.getElementById('land-uso').value:'';
   var usoReal=document.getElementById('land-uso-real')?document.getElementById('land-uso-real').value:'';
+  var regimen=document.getElementById('land-regimen')?document.getElementById('land-regimen').value:'privado';
   var mun=document.getElementById('land-mun')?document.getElementById('land-mun').value.trim():'';
   var aInp=document.getElementById('land-area')?parseFloat(document.getElementById('land-area').value)||0:0;
   if(!name){alert('El nombre del terreno es obligatorio.');return;}
@@ -1768,7 +1772,7 @@ async function submitTerrain(){
     if(esActualizacion){
       // Actualizar límites de un terreno existente
       try{
-        var upd=await SUPA.from('lands').update({name:name,province:prov,municipio:mun,uso_actual:uso,uso_real:usoReal||null,geojson:geojson,area_m2:area}).eq('id',window._editingLandId).select().single();
+        var upd=await SUPA.from('lands').update({name:name,province:prov,municipio:mun,uso_actual:uso,uso_real:usoReal||null,regimen:regimen||'privado',geojson:geojson,area_m2:area}).eq('id',window._editingLandId).select().single();
         if(!upd.error){saved=upd.data;
           var ei=USER_LANDS.findIndex(function(l){return l.id===window._editingLandId;});
           if(ei>=0)USER_LANDS[ei]=saved;ACTIVE_LAND=saved;
@@ -1778,14 +1782,14 @@ async function submitTerrain(){
     } else {
       var ins=await SUPA.from('lands').insert({
         owner_id:CURRENT_USER.id,name:name,province:prov,municipio:mun,
-        uso_actual:uso,uso_real:usoReal||null,geojson:geojson,area_m2:area,status:'pending'
+        uso_actual:uso,uso_real:usoReal||null,regimen:regimen||'privado',geojson:geojson,area_m2:area,status:'pending'
       }).select().single();
       if(!ins.error){saved=ins.data;if(!USER_LANDS)USER_LANDS=[];USER_LANDS.unshift(saved);ACTIVE_LAND=saved;}
       else{console.error('Insert lands error:',ins.error);alert('⚠ No se pudo guardar en la nube: '+(ins.error.message||'')+'\n'+(ins.error.hint||ins.error.details||''));}
     }
   }
   if(!saved){
-    saved={id:null,name:name,province:prov,municipio:mun,uso_actual:uso,uso_real:usoReal||null,geojson:geojson,area_m2:area,status:'local'};
+    saved={id:null,name:name,province:prov,municipio:mun,uso_actual:uso,uso_real:usoReal||null,regimen:regimen||'privado',geojson:geojson,area_m2:area,status:'local'};
     ACTIVE_LAND=saved;if(!USER_LANDS)USER_LANDS=[];USER_LANDS.unshift(saved);
     if(!CURRENT_USER)window._pendingLand=saved;
   }
@@ -4276,6 +4280,14 @@ function generarPropuestasProyecto(r){
   // las propuestas que dependen de vender producto terminado con margen.
   var noRentable=(r.rlvm&&r.rlvm.desarrollo_no_rentable);
   var idsVentaConvencional={vivienda_social:1,multifamiliar:1,urbanizacion:1,complejo_turistico:1,villas:1,comercial:1};
+  // ── VF47: régimen de propiedad. Si es público, el banco de proyectos
+  // cambia a equipamiento e infraestructura pública (no negocios de venta). ──
+  var regimen=(land.regimen||'privado').toLowerCase();
+  var esPublico=(regimen==='municipal'||regimen==='estatal'||regimen==='comunitario');
+  // Propuestas privadas de venta que NO aplican a un terreno público
+  var idsPrivadasVenta={villas:1,complejo_turistico:1,comercial:1,multifamiliar:1,urbanizacion:1,logistico:1,agroindustria:1,agronegocio:1,economia_azul:1};
+  // Propuestas de equipamiento público que SÍ debe priorizar el sector público
+  var idsEquipamientoPublico={educacion:1,salud:1,bomberos:1,comunitario:1,parque_urbano:1,eco_parque:1,vivienda_social:1,acueducto:1,fotovoltaico:1};
 
   // ── Scores por dimensión desde el breakdown REAL del lote ──
   function scoreDe(claves){
@@ -4305,7 +4317,8 @@ function generarPropuestasProyecto(r){
   var esUrbano = (prov==='Distrito Nacional'||prov==='Santo Domingo'||prov==='Santiago'||muni.indexOf('naco')>=0||muni.indexOf('piantini')>=0);
   var poco_edificable = (uso.indexOf('forestal')>=0||uso.indexOf('agropecuario')>=0||uso.indexOf('agrícola')>=0||uso.indexOf('conservación')>=0||uso.indexOf('protección')>=0);
   // ── Vocación del suelo según uso actual (para proponer usos coherentes) ──
-  var vocAgro = (uso.indexOf('agrícola')>=0||uso.indexOf('agricola')>=0||uso.indexOf('agropecuario')>=0||uso.indexOf('agroindustrial')>=0||uso.indexOf('cultivo')>=0||uso.indexOf('finca')>=0);
+  var esEquipamientoOPublico = (uso.indexOf('parque')>=0||uso.indexOf('área verde')>=0||uso.indexOf('areas verde')>=0||uso.indexOf('áreas verde')>=0||uso.indexOf('equipamiento')>=0||uso.indexOf('recreativo')>=0||uso.indexOf('espacio público')>=0||uso.indexOf('institucional')>=0||uso.indexOf('administrativo')>=0);
+  var vocAgro = (!esEquipamientoOPublico)&&(uso.indexOf('agrícola')>=0||uso.indexOf('agricola')>=0||uso.indexOf('agropecuario')>=0||uso.indexOf('agroindustrial')>=0||uso.indexOf('cultivo')>=0||uso.indexOf('finca')>=0);
   var vocForestal = (uso.indexOf('forestal')>=0||uso.indexOf('bosque')>=0);
   var vocConservacion = (uso.indexOf('conservación')>=0||uso.indexOf('conservacion')>=0||uso.indexOf('protección')>=0||uso.indexOf('proteccion')>=0||uso.indexOf('humedal')>=0);
   var vocIndustrial = (uso.indexOf('industrial')>=0||uso.indexOf('agroindustrial')>=0||uso.indexOf('logístic')>=0||uso.indexOf('logistic')>=0);
@@ -4325,6 +4338,11 @@ function generarPropuestasProyecto(r){
   var C=[];
   function add(o){
     if(noRentable&&idsVentaConvencional[o.id]){o.fit=Math.round(o.fit*0.25);o.no_rentable_penalizado=true;}
+    // VF47: lógica de régimen público
+    if(esPublico){
+      if(idsPrivadasVenta[o.id]){o.fit=Math.round(o.fit*0.10);} // descartar negocios privados
+      if(idsEquipamientoPublico[o.id]){o.fit=Math.round(o.fit*1.5)+15;o.publico=true;} // potenciar equipamiento público
+    }
     C.push(o);
   }
 
@@ -4356,6 +4374,28 @@ function generarPropuestasProyecto(r){
     desc:'El sector carece de equipamiento cultural y comunitario ('+v(sCultura)+'/100). Un centro multiuso —biblioteca, salón cultural, espacios de formación— genera cohesión social y puede operar bajo modelo mixto (alquiler de espacios, programas formativos) con apoyo de fundaciones y gobierno local.',
     encaje:'Carencia de equipamiento cultural-comunitario en la zona.',
     deficit_resuelto:'cultura', ratio:0.4});
+
+  // ── Propuestas institucionales (especialmente para terrenos públicos) ──
+  add({id:'edificio_institucional',sistema:'Equipamiento institucional',icon:'🏛',
+    titulo:'Edificio institucional o sede de servicios públicos',
+    fit: (esPublico?45:8) + (v(sAcceso)>=60?12:0) + (area>=800&&area<=10000?14:4) + (esUrbano?10:0),
+    desc:'Un edificio para oficinas gubernamentales, sede municipal, oficina de servicios al ciudadano (Punto GOB), o delegación de una institución estatal. Centraliza servicios públicos cerca de la población, optimiza el uso de suelo estatal y mejora la atención ciudadana. La buena accesibilidad del lote ('+v(sAcceso)+'/100) facilita el acceso de los usuarios.',
+    encaje:'Suelo público + accesibilidad para concentrar servicios al ciudadano.',
+    deficit_resuelto:'servicios administrativos', ratio:0.55});
+
+  add({id:'mercado_municipal',sistema:'Equipamiento institucional',icon:'🏪',
+    titulo:'Mercado municipal o plaza de abastos',
+    fit: (esPublico?38:10) + dCom*0.5 + (area>=1500?14:4) + (esUrbano?12:0),
+    desc:'Un mercado municipal ordena el comercio informal, da espacio digno a vendedores locales y garantiza abastecimiento de productos frescos a la población. Es un equipamiento de alto impacto social que genera ingresos al ayuntamiento (alquiler de puestos) y dinamiza la economía local.',
+    encaje:'Equipamiento de abasto con respaldo municipal y retorno por concesión de puestos.',
+    deficit_resuelto:'abasto y comercio popular', ratio:0.5});
+
+  add({id:'cancha_polideportivo',sistema:'Equipamiento institucional',icon:'⚽',
+    titulo:'Polideportivo o cancha de uso múltiple',
+    fit: (esPublico?40:5) + dRec*1.0 + (area>=1500?14:4),
+    desc:'Una instalación deportiva pública (cancha techada, polideportivo, play) responde al déficit de espacios recreativos ('+v(sRecreacion)+'/100) y es una de las inversiones de mayor impacto social y político para un gobierno local: bajo costo, alta visibilidad y beneficio directo a la juventud del sector.',
+    encaje:'Déficit recreativo + alto impacto social para gobierno local.',
+    deficit_resuelto:'deporte y recreación juvenil', ratio:0.35});
 
   // ───────── SISTEMA 2: ESPACIO PÚBLICO Y AMBIENTE ─────────
   add({id:'parque_urbano',sistema:'Espacio público y ambiente',icon:'🌳',
