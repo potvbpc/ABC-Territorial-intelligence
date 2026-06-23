@@ -41,7 +41,7 @@ select.inp option{background:#0E1E2E}
 .fa2{animation:fu .33s .14s ease both}
 </style>
 </head>
-<!-- VERSION-DEPLOY: VF47 — Banco de proyectos publicos para terrenos municipales/estatales + fix vocacion parques -->
+<!-- VERSION-DEPLOY: VF48 — Fix: variable dCom no definida en propuesta de mercado municipal -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -4385,7 +4385,7 @@ function generarPropuestasProyecto(r){
 
   add({id:'mercado_municipal',sistema:'Equipamiento institucional',icon:'🏪',
     titulo:'Mercado municipal o plaza de abastos',
-    fit: (esPublico?38:10) + dCom*0.5 + (area>=1500?14:4) + (esUrbano?12:0),
+    fit: (esPublico?38:10) + (v(sMercado)>=60?12:4) + (area>=1500?14:4) + (esUrbano?12:0),
     desc:'Un mercado municipal ordena el comercio informal, da espacio digno a vendedores locales y garantiza abastecimiento de productos frescos a la población. Es un equipamiento de alto impacto social que genera ingresos al ayuntamiento (alquiler de puestos) y dinamiza la economía local.',
     encaje:'Equipamiento de abasto con respaldo municipal y retorno por concesión de puestos.',
     deficit_resuelto:'abasto y comercio popular', ratio:0.5});
