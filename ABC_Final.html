@@ -41,7 +41,7 @@ select.inp option{background:#0E1E2E}
 .fa2{animation:fu .33s .14s ease both}
 </style>
 </head>
-<!-- VERSION-DEPLOY: VF48 — Fix: variable dCom no definida en propuesta de mercado municipal -->
+<!-- VERSION-DEPLOY: VF49 — Fix impresion del certificado de tasacion: documento limpio con formato, no captura de pantalla -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -2870,7 +2870,13 @@ function generarTasacionReal(){
   }, 1500);
 }
 
-function imprimirTasacion(){ window.print(); }
+function imprimirTasacionGuardada(id){
+  // Las tasaciones guardadas almacenan datos, no el HTML renderizado.
+  // Para imprimir con formato, se regenera desde el módulo de tasación.
+  alert('Para imprimir esta tasación con formato profesional, ábrela desde el módulo de Tasación (se regenerará el documento) y usa el botón "Imprimir / PDF".');
+}
+
+function imprimirTasacion(){ if(typeof tasPrint==='function'){tasPrint();}else{window.print();} }
 
 
 /* ── ROUTER ── */
@@ -3099,8 +3105,25 @@ function showModal(html,css){
 }
 function printModal(){
   var b=document.getElementById('abc-modal-body');if(!b)return;
-  var w=window.open('','_blank');
-  if(w){w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body>'+b.innerHTML+'</body></html>');w.document.close();setTimeout(function(){w.print();},500);}
+  // Extraer el CSS del <style> incrustado y el contenido por separado
+  var styleEl=b.querySelector('style');
+  var cssText=styleEl?styleEl.textContent:'';
+  // Clonar el cuerpo sin el <style> para no duplicarlo
+  var contentClone=b.cloneNode(true);
+  var styleInClone=contentClone.querySelector('style');
+  if(styleInClone)styleInClone.remove();
+  var contentHTML=contentClone.innerHTML;
+  var w=window.open('','_blank','width=900,height=1000');
+  if(w){
+    w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>ABC Territorial Intelligence</title><style>'+cssText+'</style></head><body>'+contentHTML+'</body></html>');
+    w.document.close();
+    // Esperar a que carguen imágenes antes de imprimir
+    setTimeout(function(){
+      try{w.focus();w.print();}catch(e){}
+    },700);
+  } else {
+    alert('Habilita las ventanas emergentes para imprimir el documento.');
+  }
 }
 function tasPrint(){
   var res=document.getElementById('tas-resultado');
@@ -6230,7 +6253,7 @@ async function autoCreateOpportunity(land, result){
 }
 
 async function showTasacionTab(tab){var btnN=document.getElementById('tab-nueva'),btnM=document.getElementById('tab-mis');if(tab==='nueva'){if(btnN){btnN.style.background='rgba(21,101,192,.3)';btnN.style.color='#E8EDF3';}if(btnM){btnM.style.background='rgba(255,255,255,.05)';btnM.style.color='#8FA5BE';}var fs=document.getElementById('tasacion-form-section');if(fs)fs.style.display='block';var ms=document.getElementById('mis-tasaciones-section');if(ms)ms.style.display='none';}else{if(btnM){btnM.style.background='rgba(21,101,192,.3)';btnM.style.color='#E8EDF3';}if(btnN){btnN.style.background='rgba(255,255,255,.05)';btnN.style.color='#8FA5BE';}var fs2=document.getElementById('tasacion-form-section');if(fs2)fs2.style.display='none';await renderMisTasaciones();}}
-async function renderMisTasaciones(){var con=document.getElementById('content');if(!con)return;var ex=document.getElementById('mis-tasaciones-section');if(ex)ex.remove();var sec=document.createElement('div');sec.id='mis-tasaciones-section';var items=await loadMisTasaciones();if(items.length===0){sec.innerHTML='<div style="text-align:center;padding:32px;background:#0E1E2E;border:1px solid rgba(255,255,255,.09);border-radius:12px"><div style="font-size:32px">&#x1F4CB;</div><div style="color:#8FA5BE;margin-top:8px">No hay tasaciones guardadas.</div></div>';}else{sec.innerHTML=items.map(function(t){var d=t.data_json||{};var f=t.created_at?new Date(t.created_at).toLocaleDateString('es-DO'):'—';return '<div style="background:#0E1E2E;border:1px solid rgba(255,255,255,.09);border-radius:10px;padding:14px 16px;display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><div><div style="font-size:13px;font-weight:600;color:#E8EDF3">'+(d.numero||'Tasacion')+'</div><div style="font-size:11px;color:#8FA5BE;margin-top:2px">'+(d.propietario||'—')+' · '+f+'</div></div><div style="display:flex;gap:6px"><button onclick="window.print()" style="background:rgba(21,101,192,.15);border:1px solid rgba(21,101,192,.3);color:#42A5F5;padding:6px 12px;border-radius:7px;font-size:11px;cursor:pointer">Imprimir</button><button onclick="deleteTasacion(\"'+t.id+'\")" style="background:rgba(231,76,60,.1);border:1px solid rgba(231,76,60,.3);color:#E74C3C;padding:6px 12px;border-radius:7px;font-size:11px;cursor:pointer">Eliminar</button></div></div>';}).join('');}
+async function renderMisTasaciones(){var con=document.getElementById('content');if(!con)return;var ex=document.getElementById('mis-tasaciones-section');if(ex)ex.remove();var sec=document.createElement('div');sec.id='mis-tasaciones-section';var items=await loadMisTasaciones();if(items.length===0){sec.innerHTML='<div style="text-align:center;padding:32px;background:#0E1E2E;border:1px solid rgba(255,255,255,.09);border-radius:12px"><div style="font-size:32px">&#x1F4CB;</div><div style="color:#8FA5BE;margin-top:8px">No hay tasaciones guardadas.</div></div>';}else{sec.innerHTML=items.map(function(t){var d=t.data_json||{};var f=t.created_at?new Date(t.created_at).toLocaleDateString('es-DO'):'—';return '<div style="background:#0E1E2E;border:1px solid rgba(255,255,255,.09);border-radius:10px;padding:14px 16px;display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><div><div style="font-size:13px;font-weight:600;color:#E8EDF3">'+(d.numero||'Tasacion')+'</div><div style="font-size:11px;color:#8FA5BE;margin-top:2px">'+(d.propietario||'—')+' · '+f+'</div></div><div style="display:flex;gap:6px"><button onclick="imprimirTasacionGuardada(\''+t.id+'\')" style="background:rgba(21,101,192,.15);border:1px solid rgba(21,101,192,.3);color:#42A5F5;padding:6px 12px;border-radius:7px;font-size:11px;cursor:pointer">Imprimir</button><button onclick="deleteTasacion(\"'+t.id+'\")" style="background:rgba(231,76,60,.1);border:1px solid rgba(231,76,60,.3);color:#E74C3C;padding:6px 12px;border-radius:7px;font-size:11px;cursor:pointer">Eliminar</button></div></div>';}).join('');}
 con.appendChild(sec);}
 /* ── BOOT ── */
 // Mostrar loader mientras se verifica la sesión (evita parpadeo a login)
