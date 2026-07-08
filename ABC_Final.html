@@ -41,7 +41,7 @@ select.inp option{background:#0E1E2E}
 .fa2{animation:fu .33s .14s ease both}
 </style>
 </head>
-<!-- VERSION-DEPLOY: VF49 — Fix impresion del certificado de tasacion: documento limpio con formato, no captura de pantalla -->
+<!-- VERSION-DEPLOY: VF50 — Recuperacion de contrasena funcional + boton conectado -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -3156,7 +3156,7 @@ function rLogin(){
     <div style="margin-bottom:16px"><div style="font-size:9px;color:${C.tm};font-weight:600;text-transform:uppercase;margin-bottom:5px">Contraseña</div><input class="inp" id="log-pw" type="password" placeholder="Tu contraseña"/></div>
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
       <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;color:${C.tm}"><input type="checkbox" style="accent-color:#1565C0"/> Recordarme</label>
-      <span style="font-size:12px;color:${C.bll};cursor:pointer">¿Olvidaste contraseña?</span>
+      <span onclick="recuperarPassword()" style="font-size:12px;color:${C.bll};cursor:pointer">¿Olvidaste contraseña?</span>
     </div>
     <button onclick="doLogin()" style="width:100%;background:linear-gradient(135deg,#1565C0,#0D47A1);color:white;padding:13px 0;border-radius:10px;font-size:14px;font-weight:800;border:none;cursor:pointer;margin-bottom:12px">Ingresar →</button>
     <div style="text-align:center;padding-top:12px;border-top:1px solid rgba(255,255,255,.07)"><span style="font-size:12px;color:${C.td}">¿No tienes cuenta? </span><span onclick="goTo('register')" style="font-size:12px;color:${C.bll};cursor:pointer;font-weight:600">Crear cuenta gratis</span></div>
@@ -5768,6 +5768,27 @@ var SUPA = supabase.createClient('https://qpqgtlmhjhowtjihilzv.supabase.co','sb_
 var CURRENT_USER = null;
 var USER_LANDS   = [];
 var ACTIVE_LAND  = null;
+
+async function recuperarPassword(){
+  var em=document.getElementById('log-em')&&document.getElementById('log-em').value.trim();
+  if(!em){
+    em=prompt('Ingresa tu correo electrónico para enviarte el enlace de recuperación:');
+    if(!em)return;
+    em=em.trim();
+  }
+  // Validación básica de email
+  if(!/^[^@]+@[^@]+\.[^@]+$/.test(em)){alert('Ingresa un correo electrónico válido.');return;}
+  try{
+    if(typeof SUPA==='undefined'){alert('Sin conexión al servidor. Intenta más tarde.');return;}
+    var redirectTo=window.location.origin;
+    var r=await SUPA.auth.resetPasswordForEmail(em,{redirectTo:redirectTo});
+    if(r.error)throw r.error;
+    alert('✓ Te enviamos un correo a '+em+' con un enlace para restablecer tu contraseña. Revisa tu bandeja de entrada (y la carpeta de spam).');
+  }catch(err){
+    console.warn('reset password:',err);
+    alert('No se pudo enviar el correo de recuperación. Verifica que el correo esté registrado e intenta de nuevo.\n\nDetalle: '+(err.message||'error desconocido'));
+  }
+}
 
 async function supaSignIn(email,pw){
   var r=await SUPA.auth.signInWithPassword({email,password:pw});
