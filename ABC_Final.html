@@ -41,7 +41,7 @@ select.inp option{background:#0E1E2E}
 .fa2{animation:fu .33s .14s ease both}
 </style>
 </head>
-<!-- VERSION-DEPLOY: VF50 — Recuperacion de contrasena funcional + boton conectado -->
+<!-- VERSION-DEPLOY: VF51 — Recuperacion de contrasena de extremo a extremo: envio + formulario de nueva clave -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -5769,6 +5769,42 @@ var CURRENT_USER = null;
 var USER_LANDS   = [];
 var ACTIVE_LAND  = null;
 
+function mostrarNuevaPassword(){
+  var css='body{font-family:Arial,sans-serif;background:#0A1520;margin:0;padding:0}';
+  var html='<div style="max-width:420px;margin:60px auto;background:#0E1E2E;border:1px solid rgba(255,255,255,.1);border-radius:16px;padding:28px;color:#E8EDF3">'
+    +'<div style="text-align:center;margin-bottom:20px"><div style="font-size:30px">🔑</div><div style="font-size:18px;font-weight:800;margin-top:6px">Nueva contraseña</div><div style="font-size:12px;color:#8FA5BE;margin-top:4px">Escribe tu nueva contraseña para ABC Territorial Intelligence</div></div>'
+    +'<div style="margin-bottom:12px"><div style="font-size:9px;color:#8FA5BE;font-weight:600;text-transform:uppercase;margin-bottom:5px">Nueva contraseña</div><input id="new-pw" type="password" placeholder="Mínimo 6 caracteres" style="width:100%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.13);color:#E8EDF3;padding:11px 13px;border-radius:8px;font-size:13px;box-sizing:border-box"/></div>'
+    +'<div style="margin-bottom:16px"><div style="font-size:9px;color:#8FA5BE;font-weight:600;text-transform:uppercase;margin-bottom:5px">Confirmar contraseña</div><input id="new-pw2" type="password" placeholder="Repite la contraseña" style="width:100%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.13);color:#E8EDF3;padding:11px 13px;border-radius:8px;font-size:13px;box-sizing:border-box"/></div>'
+    +'<button onclick="actualizarPassword()" style="width:100%;background:linear-gradient(135deg,#1565C0,#0D47A1);color:white;padding:12px 0;border-radius:10px;font-size:14px;font-weight:800;border:none;cursor:pointer">Guardar nueva contraseña</button>'
+    +'</div>';
+  // Reemplazar todo el contenido de la app con el formulario
+  var cont=document.getElementById('content');
+  if(cont){cont.innerHTML=html;}
+  else{document.body.innerHTML='<style>'+css+'</style>'+html;}
+  // Asegurar que sea visible
+  try{window.scrollTo(0,0);}catch(e){}
+}
+
+async function actualizarPassword(){
+  var pw=document.getElementById('new-pw')&&document.getElementById('new-pw').value;
+  var pw2=document.getElementById('new-pw2')&&document.getElementById('new-pw2').value;
+  if(!pw||pw.length<6){alert('La contraseña debe tener al menos 6 caracteres.');return;}
+  if(pw!==pw2){alert('Las contraseñas no coinciden.');return;}
+  var btn=document.querySelector('button[onclick*="actualizarPassword"]');
+  if(btn){btn.textContent='Guardando...';btn.style.opacity='.7';}
+  try{
+    var r=await SUPA.auth.updateUser({password:pw});
+    if(r.error)throw r.error;
+    alert('✓ Tu contraseña se actualizó correctamente. Ya puedes iniciar sesión con la nueva contraseña.');
+    // Limpiar el hash de recuperación de la URL y volver al login
+    try{history.replaceState(null,'',window.location.pathname);}catch(e){}
+    if(typeof goTo==='function')goTo('login');else window.location.reload();
+  }catch(err){
+    if(btn){btn.textContent='Guardar nueva contraseña';btn.style.opacity='1';}
+    alert('No se pudo actualizar la contraseña: '+(err.message||'error')+'\n\nEs posible que el enlace haya expirado. Solicita uno nuevo desde "¿Olvidaste contraseña?".');
+  }
+}
+
 async function recuperarPassword(){
   var em=document.getElementById('log-em')&&document.getElementById('log-em').value.trim();
   if(!em){
@@ -5835,10 +5871,11 @@ async function checkSession(){
   }
 }
 SUPA.auth.onAuthStateChange(function(event,session){
-  // Flujo de recuperación de contraseña: el usuario llega desde el enlace del correo.
-  // Mostrar el modal de nueva contraseña con la identidad de la plataforma.
+  // VF51: cuando el usuario vuelve desde el enlace de recuperación,
+  // Supabase dispara PASSWORD_RECOVERY. Mostrar el formulario de nueva clave.
   if(event==='PASSWORD_RECOVERY'){
-    abrirModalRecovery();
+    if(session&&session.user)CURRENT_USER=session.user;
+    mostrarNuevaPassword();
     return;
   }
   // Solo actualizar estado básico. La carga de datos la maneja checkSession
@@ -6532,87 +6569,6 @@ async function deleteTasacion(id){
     </a>
   </div>
 </div>
-
-<!-- ════════════════════════════════════════════════════
-     RECUPERACIÓN DE CONTRASEÑA — Modal con identidad ABC-TI
-     VF50.1 · Se abre al llegar desde el enlace del correo
-════════════════════════════════════════════════════ -->
-<style>
-  .ati-rec-overlay{position:fixed;inset:0;z-index:99999;display:none;align-items:center;justify-content:center;background:rgba(6,15,25,.94);backdrop-filter:blur(4px);padding:20px}
-  .ati-rec-overlay.open{display:flex}
-  .ati-rec-card{background:#0E1E2E;border:1px solid rgba(255,255,255,.09);border-radius:16px;max-width:420px;width:100%;padding:34px 30px;box-shadow:0 24px 60px rgba(0,0,0,.5);font-family:Montserrat,sans-serif}
-  .ati-rec-brand{display:flex;align-items:center;gap:9px;font-size:10px;font-weight:800;letter-spacing:.16em;text-transform:uppercase;color:#8FA5BE;margin-bottom:18px}
-  .ati-rec-dot{width:10px;height:10px;border-radius:50%;background:linear-gradient(135deg,#1565C0,#17C3B2);flex:none}
-  .ati-rec-card h2{margin:0 0 8px;font-size:20px;font-weight:800;color:#E8EDF3}
-  .ati-rec-sub{margin:0 0 22px;font-size:12.5px;line-height:1.6;color:#8FA5BE}
-  .ati-rec-label{display:block;font-size:9px;font-weight:600;text-transform:uppercase;color:#8FA5BE;margin:0 0 5px;letter-spacing:.08em}
-  .ati-rec-input{width:100%;box-sizing:border-box;margin-bottom:14px;padding:11px 13px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:9px;font-size:14px;color:#E8EDF3;transition:border-color .15s}
-  .ati-rec-input:focus{outline:none;border-color:#17C3B2}
-  .ati-rec-btn{width:100%;padding:13px;border:none;border-radius:10px;cursor:pointer;background:linear-gradient(135deg,#1565C0,#0D47A1);color:#fff;font-size:14px;font-weight:800;font-family:Montserrat,sans-serif;transition:opacity .15s}
-  .ati-rec-btn:hover{opacity:.92}
-  .ati-rec-btn:disabled{opacity:.5;cursor:wait}
-  .ati-rec-msg{margin:0 0 14px;padding:10px 12px;border-radius:8px;font-size:12px;line-height:1.5;display:none}
-  .ati-rec-msg.error{display:block;background:rgba(231,76,60,.14);border:1px solid rgba(231,76,60,.35);color:#F1948A}
-  .ati-rec-msg.ok{display:block;background:rgba(46,204,113,.12);border:1px solid rgba(46,204,113,.35);color:#7DCEA0}
-</style>
-
-<div id="ati-rec-overlay" class="ati-rec-overlay" role="dialog" aria-modal="true" aria-labelledby="ati-rec-title">
-  <div class="ati-rec-card">
-    <div class="ati-rec-brand"><span class="ati-rec-dot"></span>ABC Territorial Intelligence</div>
-    <h2 id="ati-rec-title">Crea tu nueva contraseña</h2>
-    <p class="ati-rec-sub">Tu identidad fue verificada correctamente. Define una contraseña segura para volver a entrar a la plataforma.</p>
-    <label class="ati-rec-label" for="ati-rec-p1">Nueva contraseña</label>
-    <input type="password" id="ati-rec-p1" class="ati-rec-input" placeholder="Mínimo 8 caracteres" autocomplete="new-password"/>
-    <label class="ati-rec-label" for="ati-rec-p2">Confirmar contraseña</label>
-    <input type="password" id="ati-rec-p2" class="ati-rec-input" placeholder="Repite la contraseña" autocomplete="new-password"/>
-    <div id="ati-rec-msg" class="ati-rec-msg"></div>
-    <button id="ati-rec-btn" class="ati-rec-btn" onclick="guardarNuevaPassword()">Guardar contraseña y entrar →</button>
-  </div>
-</div>
-
-<script>
-function abrirModalRecovery(){
-  var ov=document.getElementById('ati-rec-overlay');
-  if(!ov)return;
-  ov.classList.add('open');
-  var p1=document.getElementById('ati-rec-p1');
-  if(p1)setTimeout(function(){p1.focus();},150);
-}
-function atiRecMsg(texto,tipo){
-  var m=document.getElementById('ati-rec-msg');
-  m.textContent=texto;
-  m.className='ati-rec-msg '+tipo;
-}
-async function guardarNuevaPassword(){
-  var p1=document.getElementById('ati-rec-p1').value;
-  var p2=document.getElementById('ati-rec-p2').value;
-  if(p1.length<8){atiRecMsg('La contraseña debe tener al menos 8 caracteres.','error');return;}
-  if(p1!==p2){atiRecMsg('Las contraseñas no coinciden. Verifica e intenta de nuevo.','error');return;}
-  var btn=document.getElementById('ati-rec-btn');
-  btn.disabled=true;btn.textContent='Guardando…';
-  try{
-    var r=await SUPA.auth.updateUser({password:p1});
-    if(r.error)throw r.error;
-    atiRecMsg('✓ Contraseña actualizada. Entrando a la plataforma…','ok');
-    // Limpiar tokens del hash para que no queden visibles en la URL
-    try{history.replaceState(null,'',window.location.pathname);}catch(e){}
-    setTimeout(function(){location.reload();},1300);
-  }catch(err){
-    console.warn('update password:',err);
-    var det=(err&&err.message)||'error desconocido';
-    if(/expired|invalid/i.test(det)){
-      atiRecMsg('El enlace expiró o ya fue usado. Cierra esta ventana y solicita uno nuevo desde "¿Olvidaste tu contraseña?".','error');
-    }else{
-      atiRecMsg('No se pudo actualizar la contraseña: '+det,'error');
-    }
-    btn.disabled=false;btn.textContent='Guardar contraseña y entrar →';
-  }
-}
-// Respaldo: algunos navegadores cargan con el hash antes de que el listener esté activo
-if(window.location.hash&&window.location.hash.indexOf('type=recovery')>=0){
-  document.addEventListener('DOMContentLoaded',abrirModalRecovery);
-}
-</script>
 
 </body>
 </html>
