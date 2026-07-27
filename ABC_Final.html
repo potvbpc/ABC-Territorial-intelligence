@@ -147,7 +147,7 @@ function instalarApp(){
 }
 </script>
 </head>
-<!-- VERSION-DEPLOY: VF55 — Renombrado del informe (3 niveles) + descargos legales reforzados -->
+<!-- VERSION-DEPLOY: VF56 — Veredictos explicados por rangos: significado, factores y nivel de confianza -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -5428,6 +5428,44 @@ async function solicitarPrefactibilidad(){
   }
 }
 
+// ── Sistema de veredictos por rangos (VF56) ──
+// Rangos editables. Cada veredicto explica su significado, evitando el
+// binario apto/no apto. La afectación crítica y la no rentabilidad tienen
+// precedencia (se manejan aparte).
+var ABC_RANGOS_VEREDICTO=[
+  {min:80,max:100,etiqueta:'POTENCIAL ALTO',color:'#1B5E20',
+   texto:'Potencial alto, sujeto a verificaciones regulares.',
+   significado:'El terreno presenta condiciones territoriales favorables en la mayoría de los factores evaluados. Es un buen candidato para avanzar, verificando los puntos indicados.'},
+  {min:65,max:79,etiqueta:'POTENCIAL CONDICIONADO',color:'#1565C0',
+   texto:'Potencial condicionado; requiere estudios específicos.',
+   significado:'El terreno tiene buenas condiciones generales, pero algunos factores requieren estudios o validaciones específicas antes de tomar una decisión de inversión.'},
+  {min:50,max:64,etiqueta:'RIESGO RELEVANTE',color:'#F39C12',
+   texto:'Riesgo relevante; avanzar con cautela.',
+   significado:'El terreno presenta limitaciones o riesgos que afectan su viabilidad. Es posible avanzar, pero con cautela y tras mitigar los factores críticos identificados.'},
+  {min:0,max:49,etiqueta:'NO RECOMENDABLE',color:'#C0392B',
+   texto:'No recomendable sin mitigación sustancial.',
+   significado:'El terreno presenta limitaciones significativas que comprometen su viabilidad para desarrollo convencional. Requiere mitigación sustancial o un cambio de enfoque de uso.'}
+];
+function _rangoVeredicto(score){
+  for(var i=0;i<ABC_RANGOS_VEREDICTO.length;i++){
+    if(score>=ABC_RANGOS_VEREDICTO[i].min&&score<=ABC_RANGOS_VEREDICTO[i].max)return ABC_RANGOS_VEREDICTO[i];
+  }
+  return ABC_RANGOS_VEREDICTO[ABC_RANGOS_VEREDICTO.length-1];
+}
+// Construye el bloque explicativo: qué favoreció, qué bajó, qué podría cambiarlo
+function _veredictoExplicado(r){
+  var sc=r.score;
+  var rango=_rangoVeredicto(sc);
+  // Ordenar capas por contribución para identificar fortalezas y debilidades
+  var capas=(r.breakdown||[]).slice().sort(function(a,b){return b.xi-a.xi;});
+  var favorecieron=capas.slice(0,3).filter(function(c){return c.xi>=60;}).map(function(c){return c.label+' ('+Math.round(c.xi)+'/100)';});
+  var bajaron=capas.slice().reverse().slice(0,3).filter(function(c){return c.xi<60;}).map(function(c){return c.label+' ('+Math.round(c.xi)+'/100)';});
+  // Nivel de confianza según cuántas capas reales se midieron
+  var nCapas=capas.length;
+  var confianza=nCapas>=10?'media-alta':(nCapas>=6?'media':'preliminar');
+  return {rango:rango,favorecieron:favorecieron,bajaron:bajaron,confianza:confianza,nCapas:nCapas};
+}
+
 // ── Sistema de niveles de informe (VF55) ──
 // Cada informe declara su nivel de validación. El título y el sello
 // cambian según el nivel, evitando dar apariencia de certificación oficial.
@@ -5741,6 +5779,20 @@ function verCertificado(){
       return '<div style="line-height:1.8;font-size:11pt;color:#333">'
         +'<p style="margin-bottom:10px">El presente análisis territorial fue realizado sobre el inmueble denominado <strong>'+landName+'</strong>, ubicado en <strong>'+prov+'</strong>, con una superficie de <strong>'+area+'</strong> y uso clasificado como '+usoTexto+'. El análisis fue procesado mediante el motor de análisis multicriterio WLC (Weighted Linear Combination) de ABC Territorial Intelligence, cruzando <strong>'+numLayers+' capas GIS</strong> con datos territoriales reales de República Dominicana.</p>'
         +'<p style="margin-bottom:10px">El Score WLC obtenido es de <strong>'+sc+'/100</strong>, calificado como <strong>'+scLabel.toUpperCase()+'</strong>, con veredicto de idoneidad: <strong>'+scVerdict+'</strong>. '+pca+'</p>'
+        +(function(){
+          // VF56: bloque explicativo del veredicto (qué significa, qué favoreció/bajó, confianza)
+          var ve=_veredictoExplicado(r);
+          var html='<div style="border:1px solid #d0d7de;border-radius:8px;padding:0;margin:14px 0;overflow:hidden">';
+          html+='<div style="background:'+ve.rango.color+';color:white;padding:8px 14px;font-size:10pt;font-weight:700">Veredicto: '+ve.rango.etiqueta+' — '+ve.rango.texto+'</div>';
+          html+='<div style="padding:12px 14px;font-size:9.5pt;color:#333;line-height:1.6">';
+          html+='<p style="margin-bottom:8px"><strong>¿Qué significa?</strong> '+ve.rango.significado+'</p>';
+          if(ve.favorecieron.length>0)html+='<p style="margin-bottom:6px"><strong style="color:#1B5E20">✓ Factores que favorecieron el resultado:</strong> '+ve.favorecieron.join(', ')+'.</p>';
+          if(ve.bajaron.length>0)html+='<p style="margin-bottom:6px"><strong style="color:#C0392B">↓ Factores que bajaron el score:</strong> '+ve.bajaron.join(', ')+'.</p>';
+          html+='<p style="margin-bottom:6px"><strong>¿Qué podría cambiarlo?</strong> Validar los factores más débiles con estudios específicos, confirmar el uso normativo ante el ayuntamiento y Catastro, y verificar las restricciones ambientales pueden modificar este resultado.</p>';
+          html+='<p style="margin-bottom:0;font-size:8.5pt;color:#666"><strong>Nivel de confianza del resultado:</strong> '+ve.confianza+' (basado en '+ve.nCapas+' capas analizadas). Un mayor número de capas verificadas y datos aportados aumenta la confianza.</p>';
+          html+='</div></div>';
+          return html;
+        })()
         +'<p style="margin-bottom:10px">Entre los factores positivos destacados, la capa <strong>'+mejorCapa.label+'</strong> obtuvo el mayor puntaje individual ('+mejorCapa.xi+'/100), lo que evidencia condiciones favorables en este aspecto territorial. La dimensión con mayor oportunidad de mejora es <strong>'+peorCapa.label+'</strong> ('+peorCapa.xi+'/100), donde se recomienda atención específica en la planificación del desarrollo.</p>'
         +'<p style="margin-bottom:10px">'+restr+'</p>'
         +'<p style="margin-bottom:10px">'+rlvmNarr+'</p>'
