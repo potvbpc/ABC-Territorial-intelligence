@@ -2,7 +2,14 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
+<!-- PWA: instalable en móvil, tablet y PC (VF53) -->
+<meta name="theme-color" content="#0A1520"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<meta name="apple-mobile-web-app-title" content="ABC Territorial"/>
+<meta name="mobile-web-app-capable" content="yes"/>
+<link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'%3E%3Crect width='180' height='180' rx='38' fill='%230A1520'/%3E%3Ctext x='90' y='120' font-size='90' font-weight='800' fill='%231565C0' text-anchor='middle' font-family='Arial'%3EA%3C/text%3E%3C/svg%3E"/>
 <title>ABC Territorial Intelligence Platform</title>
 <!-- VERSION: ABC-TI-BUILD-20260519-SUPABASE-REAL -->
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
@@ -22,6 +29,33 @@ html,body{height:100vh;overflow:hidden;background:#061019;color:#E8EDF3;font-fam
 ::-webkit-scrollbar{width:3px}::-webkit-scrollbar-thumb{background:#1a3050;border-radius:2px}
 @media(max-width:900px){#sidebar{width:0!important;overflow:hidden;position:fixed;z-index:200;transition:width .25s}#sidebar.mob-open{width:220px!important;box-shadow:6px 0 24px rgba(0,0,0,.6)}#mob-btn{display:flex!important}#mob-ov{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:199}#mob-ov.show{display:block}}
 @media(max-width:580px){.g4{grid-template-columns:1fr 1fr!important}.g2,.g3,.g12{grid-template-columns:1fr!important}#con{padding:8px!important}}
+/* VF54: ajustes finos de movil — mapa, grids y tablas */
+@media(max-width:900px){
+  /* Mapa de dibujo de terreno: altura adaptable en movil */
+  #up-map{height:320px!important}
+  #pub-map{height:180px!important}
+  /* Grids de 4 y 5 columnas se reorganizan en movil */
+  div[style*="grid-template-columns:repeat(4,1fr)"]{grid-template-columns:1fr 1fr!important}
+  div[style*="grid-template-columns:repeat(5,1fr)"]{grid-template-columns:1fr 1fr!important}
+  div[style*="grid-template-columns:repeat(3,1fr)"]{grid-template-columns:1fr 1fr!important}
+  /* Tablas anchas: permitir scroll horizontal en vez de romper el layout */
+  table{max-width:100%;display:block;overflow-x:auto;-webkit-overflow-scrolling:touch}
+}
+@media(max-width:580px){
+  #up-map{height:280px!important}
+  #pub-map{height:160px!important}
+  /* Grids de 4/5 columnas a una sola en pantallas muy pequenas cuando son metricas */
+  div[style*="grid-template-columns:repeat(5,1fr)"]{grid-template-columns:1fr 1fr!important}
+  /* Reducir padding de tarjetas para aprovechar el ancho */
+  #con{padding:6px!important}
+  /* Titulos mas compactos */
+  #page-title{font-size:15px!important}
+  #page-sub{font-size:10px!important}
+  /* Botones de accion a ancho completo para facil toque */
+  .mob-full{width:100%!important}
+}
+/* El mapa nunca debe desbordar horizontalmente */
+.mapboxgl-map{max-width:100%!important}
 @media print{#sidebar,#smart-bg,#mob-btn,#mob-ov{display:none!important}#con{overflow:visible!important}}
 .mn{font-family:'Montserrat',sans-serif}
 button{cursor:pointer;border:none;outline:none;font-family:'Inter',sans-serif;transition:all .17s}
@@ -40,8 +74,80 @@ select.inp option{background:#0E1E2E}
 .fa1{animation:fu .33s .07s ease both}
 .fa2{animation:fu .33s .14s ease both}
 </style>
+<script>
+// ─── PWA: manifest embebido + service worker (VF53) ───
+(function(){
+  try{
+    // Manifest embebido como Blob (no requiere archivo externo)
+    var manifest={
+      name:"ABC Territorial Intelligence",
+      short_name:"ABC Territorial",
+      description:"Analisis territorial inteligente para decisiones de inversion y desarrollo.",
+      start_url:".",
+      display:"standalone",
+      background_color:"#0A1520",
+      theme_color:"#0A1520",
+      orientation:"any",
+      icons:[
+        {src:"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E%3Crect width='192' height='192' rx='40' fill='%230A1520'/%3E%3Ctext x='96' y='128' font-size='96' font-weight='800' fill='%231565C0' text-anchor='middle' font-family='Arial'%3EA%3C/text%3E%3C/svg%3E",sizes:"192x192",type:"image/svg+xml",purpose:"any maskable"},
+        {src:"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='108' fill='%230A1520'/%3E%3Ctext x='256' y='340' font-size='256' font-weight='800' fill='%231565C0' text-anchor='middle' font-family='Arial'%3EA%3C/text%3E%3C/svg%3E",sizes:"512x512",type:"image/svg+xml",purpose:"any maskable"}
+      ]
+    };
+    var blob=new Blob([JSON.stringify(manifest)],{type:"application/manifest+json"});
+    var url=URL.createObjectURL(blob);
+    var link=document.createElement("link");
+    link.rel="manifest";link.href=url;
+    document.head.appendChild(link);
+  }catch(e){console.warn("manifest:",e);}
+
+  // Service worker mínimo (cache-first ligero) para habilitar instalación offline básica
+  if("serviceWorker" in navigator){
+    try{
+      var swCode="self.addEventListener('install',function(e){self.skipWaiting();});"
+        +"self.addEventListener('activate',function(e){e.waitUntil(self.clients.claim());});"
+        +"self.addEventListener('fetch',function(e){"
+        +"  if(e.request.method!=='GET')return;"
+        +"  e.respondWith(fetch(e.request).catch(function(){return caches.match(e.request);}));"
+        +"});";
+      var swBlob=new Blob([swCode],{type:"text/javascript"});
+      var swUrl=URL.createObjectURL(swBlob);
+      navigator.serviceWorker.register(swUrl).catch(function(err){console.warn("SW:",err);});
+    }catch(e){console.warn("SW register:",e);}
+  }
+
+  // Capturar el evento de instalacion para mostrar boton propio
+  window._deferredInstallPrompt=null;
+  window.addEventListener("beforeinstallprompt",function(e){
+    e.preventDefault();
+    window._deferredInstallPrompt=e;
+    var btn=document.getElementById("pwa-install-btn");
+    if(btn)btn.style.display="inline-flex";
+  });
+  window.addEventListener("appinstalled",function(){
+    window._deferredInstallPrompt=null;
+    var btn=document.getElementById("pwa-install-btn");
+    if(btn)btn.style.display="none";
+  });
+})();
+
+function instalarApp(){
+  var p=window._deferredInstallPrompt;
+  if(p){
+    p.prompt();
+    p.userChoice.then(function(){window._deferredInstallPrompt=null;});
+  } else {
+    // iOS Safari no soporta beforeinstallprompt: instruir manualmente
+    var esIOS=/iPad|iPhone|iPod/.test(navigator.userAgent);
+    if(esIOS){
+      alert("Para instalar la app en tu iPhone/iPad:\n\n1. Toca el boton Compartir (cuadro con flecha hacia arriba)\n2. Desliza y toca 'Anadir a pantalla de inicio'\n3. Confirma con 'Anadir'");
+    } else {
+      alert("Para instalar la app:\n\nEn Chrome/Edge, busca el icono de instalacion en la barra de direcciones (a la derecha), o abre el menu (tres puntos) y elige 'Instalar ABC Territorial'.");
+    }
+  }
+}
+</script>
 </head>
-<!-- VERSION-DEPLOY: VF52 — Saludo con el nombre real del usuario (o parte del correo), sin placeholder Juan -->
+<!-- VERSION-DEPLOY: VF54 — Optimizacion movil: mapa adaptable, grids y tablas responsivas + fix bug canvas -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -92,6 +198,7 @@ select.inp option{background:#0E1E2E}
     <div style="width:7px;height:7px;border-radius:50%;background:#2ECC71;flex-shrink:0"></div>
   </div>
   <div id="logout-btn-wrap" style="padding:0 12px 10px;display:none"><button onclick="cerrarSesionReal()" style="width:100%;background:rgba(231,76,60,.1);border:1px solid rgba(231,76,60,.3);color:#E74C3C;padding:7px 0;border-radius:8px;font-size:11px;font-weight:600;cursor:pointer">Cerrar sesion</button></div>
+  <div style="padding:0 12px 10px"><button id="pwa-install-btn" onclick="instalarApp()" style="display:none;width:100%;align-items:center;justify-content:center;gap:6px;background:rgba(46,204,113,.12);border:1px solid rgba(46,204,113,.35);color:#2ECC71;padding:8px 0;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer">📲 Instalar app</button></div>
 </aside>
 
 <!-- MAIN -->
@@ -1491,7 +1598,7 @@ function rUpload(){
         </div>
       </div>
       <div style="position:relative">
-        <div id="up-map" style="width:100%;height:480px;position:relative;cursor:crosshair"></canvas>
+        <div id="up-map" style="width:100%;height:480px;position:relative;cursor:crosshair"></div>
         <div id="map-poly-info" style="position:absolute;bottom:12px;left:12px;background:rgba(6,16,25,.88);border-radius:8px;padding:7px 12px;border:1px solid ${C.bo};font-size:11px;color:${C.tm}">
           🖱 Haz clic para agregar puntos al polígono
         </div>
@@ -1532,7 +1639,7 @@ function selectUploadMethod(m){
         </div>
       </div>
       <div style="position:relative">
-        <div id="up-map" style="width:100%;height:480px;position:relative;cursor:crosshair"></canvas>
+        <div id="up-map" style="width:100%;height:480px;position:relative;cursor:crosshair"></div>
         <div id="map-poly-info" style="position:absolute;bottom:12px;left:12px;background:rgba(6,16,25,.88);border-radius:8px;padding:7px 12px;border:1px solid ${C.bo};font-size:11px;color:${C.tm}">🖱 Haz clic para marcar puntos · El área se calcula automáticamente</div>
         <div style="position:absolute;top:10px;right:10px;background:rgba(6,16,25,.88);border-radius:8px;padding:6px 12px;border:1px solid rgba(21,101,192,.4);font-size:10px;color:${C.bll}">📍 <span id="poly-count">0 puntos</span></div>
       </div>
@@ -2954,6 +3061,24 @@ var SUPABASE_URL='https://qpqgtlmhjhowtjihilzv.supabase.co';
 var TERRENO_DEMO=(ACTIVE_LAND&&ACTIVE_LAND.geojson)?{type:'Feature',geometry:ACTIVE_LAND.geojson,properties:{name:ACTIVE_LAND.name,area_m2:ACTIVE_LAND.area_m2}}:{type:'Feature',geometry:{type:'Polygon',coordinates:[[[-68.4580,18.7330],[-68.4550,18.7325],[-68.4542,18.7310],[-68.4558,18.7298],[-68.4585,18.7305],[-68.4580,18.7330]]]},properties:{name:'Terreno demo',area_m2:32450}};
 
 function _mbReady(){return typeof mapboxgl!=='undefined';}
+
+// VF54: reajustar mapas de Mapbox al cambiar tamaño/orientación (clave en móvil)
+var _mbResizeTimer=null;
+function _reajustarMapas(){
+  try{
+    if(typeof MB_MAPS==='undefined'||!MB_MAPS)return;
+    Object.keys(MB_MAPS).forEach(function(k){
+      try{if(MB_MAPS[k]&&MB_MAPS[k].resize)MB_MAPS[k].resize();}catch(e){}
+    });
+  }catch(e){}
+}
+window.addEventListener('resize',function(){
+  if(_mbResizeTimer)clearTimeout(_mbResizeTimer);
+  _mbResizeTimer=setTimeout(_reajustarMapas,250);
+});
+window.addEventListener('orientationchange',function(){
+  setTimeout(_reajustarMapas,400);
+});
 
 function mbCreate(id,opts){
   opts=opts||{};
