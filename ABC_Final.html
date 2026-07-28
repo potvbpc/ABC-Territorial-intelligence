@@ -147,7 +147,7 @@ function instalarApp(){
 }
 </script>
 </head>
-<!-- VERSION-DEPLOY: VF56 — Veredictos explicados por rangos: significado, factores y nivel de confianza -->
+<!-- VERSION-DEPLOY: VF57 — Codigo unico + QR de verificacion + vigencia en el informe -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -5428,6 +5428,29 @@ async function solicitarPrefactibilidad(){
   }
 }
 
+// ── Código único + QR de verificación (VF57) ──
+// Genera un código legible y determinístico por informe, y un QR que
+// apunta al portal de verificación (a implementar en fase posterior).
+var ABC_VERIFY_BASE='https://abcterritorialinteligence.com/verificar';
+function _codigoInforme(land, score){
+  // Determinístico: mismo terreno → mismo código base
+  var semilla=((land&&land.id)?String(land.id):'')+((land&&land.name)?land.name:'')+((land&&land.area_m2)?String(Math.round(land.area_m2)):'');
+  // Hash simple (djb2) a base36
+  var hash=5381;
+  for(var i=0;i<semilla.length;i++){hash=((hash<<5)+hash+semilla.charCodeAt(i))>>>0;}
+  var codHash=hash.toString(36).toUpperCase().slice(0,6).padStart(6,'0');
+  var anio=new Date().getFullYear();
+  return 'ABC-'+anio+'-'+codHash;
+}
+function _urlVerificacion(codigo){
+  return ABC_VERIFY_BASE+'?c='+encodeURIComponent(codigo);
+}
+function _qrImgUrl(texto, size){
+  size=size||120;
+  // Servicio de generación de QR por URL (no requiere librería)
+  return 'https://api.qrserver.com/v1/create-qr-code/?size='+size+'x'+size+'&margin=0&data='+encodeURIComponent(texto);
+}
+
 // ── Sistema de veredictos por rangos (VF56) ──
 // Rangos editables. Cada veredicto explica su significado, evitando el
 // binario apto/no apto. La afectación crítica y la no rentabilidad tienen
@@ -5613,6 +5636,28 @@ function verCertificado(){
     '<h2 style="text-align:center">'+_nivelInforme(ACTIVE_LAND).titulo+'</h2>'+
     '<p style="text-align:center;font-size:8.5pt;color:#666;margin:-4px 0 8px;font-style:italic">'+_nivelInforme(ACTIVE_LAND).descripcion+'</p>'+
     '<p><strong>Terreno:</strong> '+(ACTIVE_LAND?ACTIVE_LAND.name:'—')+' &nbsp;|&nbsp; <strong>Fecha:</strong> '+new Date().toLocaleDateString('es-DO')+'&nbsp;|&nbsp; <strong>Área:</strong> '+(ACTIVE_LAND&&ACTIVE_LAND.area_m2?Math.round(ACTIVE_LAND.area_m2).toLocaleString()+' m²':'—')+'</p>'+'<p><strong>Ubicación:</strong> '+(ACTIVE_LAND?((ACTIVE_LAND.province||'—')+(ACTIVE_LAND.municipio?', '+ACTIVE_LAND.municipio:'')):'—')+'</p>'
+    +(function(){
+      // VF57: bloque de código único + QR de verificación
+      var codigo=_codigoInforme(ACTIVE_LAND, r.score);
+      var urlVerif=_urlVerificacion(codigo);
+      var qrUrl=_qrImgUrl(urlVerif, 110);
+      var hoy=new Date();
+      var vigencia=new Date(hoy.getTime()); vigencia.setMonth(vigencia.getMonth()+6);
+      var nivelBadge=_nivelInforme(ACTIVE_LAND).badge;
+      return '<div style="display:flex;justify-content:space-between;align-items:center;border:1px solid #d0d7de;border-radius:8px;padding:10px 14px;margin:10px 0;background:#fafbfc">'
+        +'<div style="font-size:8.5pt;color:#444;line-height:1.7">'
+          +'<div><strong>Código de informe:</strong> <span style="font-family:monospace;font-weight:700;color:#1565C0;font-size:10pt">'+codigo+'</span></div>'
+          +'<div><strong>Nivel de validación:</strong> '+nivelBadge+'</div>'
+          +'<div><strong>Emitido:</strong> '+hoy.toLocaleDateString('es-DO')+' &nbsp;·&nbsp; <strong>Actualizar antes de:</strong> '+vigencia.toLocaleDateString('es-DO')+'</div>'
+          +'<div><strong>Versión:</strong> 1.0 &nbsp;·&nbsp; <strong>Emisor:</strong> ABC Territorial Intelligence</div>'
+          +'<div style="margin-top:4px;font-size:7.5pt;color:#888">Verifique la autenticidad de este informe escaneando el código QR o en '+ABC_VERIFY_BASE+'</div>'
+        +'</div>'
+        +'<div style="text-align:center;flex-shrink:0;margin-left:12px">'
+          +'<img src="'+qrUrl+'" alt="QR de verificación" style="width:90px;height:90px;display:block" onerror="this.style.display=\'none\'"/>'
+          +'<div style="font-size:7pt;color:#888;margin-top:2px">Verificar informe</div>'
+        +'</div>'
+      +'</div>';
+    })()
     +mapImgHtml+
     generarAlertaAfectacion(r)+
     '<div class="score-box no-break"><div class="score-num">'+r.score+'</div><div style="font-size:14pt;font-weight:700;color:'+scColor+'">'+scLabel+'</div><div style="font-size:10pt;color:#666;margin-top:4px">Metodología WLC + PCA · Capas GIS oficiales RD</div></div>'+
