@@ -147,7 +147,7 @@ function instalarApp(){
 }
 </script>
 </head>
-<!-- VERSION-DEPLOY: VF58 — Tabla de trazabilidad de datos (fuente/año/tipo/confianza) — cierra Bloque 1 -->
+<!-- VERSION-DEPLOY: VF59 — Fix trazabilidad: mapea fuentes oficiales por ID real de capa (antes caia en ABC) -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -5455,44 +5455,61 @@ function _qrImgUrl(texto, size){
 // Mapea cada tipo de capa a su fuente, año de referencia, tipo de dato
 // y nivel de confianza. Refuerza la credibilidad del informe permitiendo
 // al lector verificar el origen de cada dato.
+// Trazabilidad mapeada por ID real de la capa del motor (estable y confiable)
 var ABC_TRAZABILIDAD={
-  'Movilidad':          {fuente:'MOPC / OpenStreetMap',anio:'2024',tipo:'Red vial oficial + colaborativa',confianza:'Alta'},
-  'Vías principales':   {fuente:'MOPC',anio:'2024',tipo:'Red vial oficial',confianza:'Alta'},
-  'Transporte público': {fuente:'OMSA / INTRANT',anio:'2023',tipo:'Rutas de transporte',confianza:'Media'},
-  'Mercado':            {fuente:'ACOPROVI / Banco Central RD',anio:'2025',tipo:'Referencia de mercado',confianza:'Media'},
-  'Valor referencial suelo':{fuente:'ACOPROVI / ONE',anio:'2025',tipo:'Estimación de mercado',confianza:'Media'},
-  'Zonas comerciales':  {fuente:'ONE / Ayuntamientos',anio:'2023',tipo:'Uso de suelo comercial',confianza:'Media'},
-  'Centros de empleo':  {fuente:'ONE',anio:'2022',tipo:'Censo económico',confianza:'Media'},
-  'Turismo':            {fuente:'MITUR / INFRATUR',anio:'2024',tipo:'Polos y zonas turísticas',confianza:'Alta'},
-  'Infraestructura':    {fuente:'CEPM / CDEEE / INAPA',anio:'2023',tipo:'Cobertura de servicios',confianza:'Media'},
-  'Restricción crítica':{fuente:'MIMARENA (SINAP)',anio:'2024',tipo:'Áreas protegidas oficiales',confianza:'Alta'},
-  'Riesgo':             {fuente:'COE / INDRHI / SGN',anio:'2023',tipo:'Amenazas naturales',confianza:'Media'},
-  'Suelo':              {fuente:'Ministerio de Agricultura',anio:'2022',tipo:'Capacidad agrológica',confianza:'Media'},
-  'Demografía':         {fuente:'ONE (Censo 2022)',anio:'2022',tipo:'Densidad poblacional',confianza:'Alta'},
-  'Urbanización':       {fuente:'OpenStreetMap / IGN',anio:'2024',tipo:'Huella construida',confianza:'Media'},
-  'Normativa propuesta':{fuente:'Propuesta ABC (Ley 368-22, 176-07)',anio:'2025',tipo:'Criterio normativo propio',confianza:'Referencial'},
-  'valor_suelo':        {fuente:'Catastro / Mercado',anio:'2025',tipo:'Precio geoespacial',confianza:'Variable'}
+  'accesibilidad':    {fuente:'MOPC / OpenStreetMap',anio:'2024',tipo:'Red vial oficial',confianza:'Alta'},
+  'entorno_comercial':{fuente:'ONE / Ayuntamientos',anio:'2023',tipo:'Uso de suelo comercial',confianza:'Media'},
+  'servicios_basicos':{fuente:'CEPM / EDES / INAPA',anio:'2023',tipo:'Cobertura de servicios',confianza:'Media'},
+  'mercado':          {fuente:'ACOPROVI / Banco Central RD',anio:'2025',tipo:'Referencia de mercado',confianza:'Media'},
+  'normativa':        {fuente:'Propuesta ABC (Ley 368-22, 176-07)',anio:'2025',tipo:'Criterio normativo propio',confianza:'Referencial'},
+  'riesgo_ambiental': {fuente:'COE / INDRHI / SGN',anio:'2023',tipo:'Amenazas naturales',confianza:'Media'},
+  'area_protegida':   {fuente:'MIMARENA (SINAP)',anio:'2024',tipo:'Áreas protegidas oficiales',confianza:'Alta'},
+  // Capas GIS opcionales (por dimensión)
+  'suelo':            {fuente:'Ministerio de Agricultura',anio:'2022',tipo:'Capacidad agrológica',confianza:'Media'},
+  'demografia':       {fuente:'ONE (Censo 2022)',anio:'2022',tipo:'Densidad poblacional',confianza:'Alta'},
+  'urbanizacion':     {fuente:'OpenStreetMap / IGN',anio:'2024',tipo:'Huella construida',confianza:'Media'},
+  'valor_suelo':      {fuente:'Catastro / Mercado',anio:'2025',tipo:'Precio geoespacial',confianza:'Variable'}
 };
-function _trazaDe(tipo){
-  return ABC_TRAZABILIDAD[tipo]||{fuente:'ABC Territorial Intelligence',anio:String(new Date().getFullYear()),tipo:'Análisis derivado',confianza:'Referencial'};
+// Mapeo secundario por palabra clave del label (respaldo si el id no coincide)
+var ABC_TRAZA_KEYWORDS=[
+  {kw:['vía','vial','accesib','carretera','movilidad'],traza:'accesibilidad'},
+  {kw:['comercial','entorno'],traza:'entorno_comercial'},
+  {kw:['servicio','básico','basico','infraestructura','agua','luz','eléctric'],traza:'servicios_basicos'},
+  {kw:['mercado','valor','precio','económic'],traza:'mercado'},
+  {kw:['normativa','uso suelo','zonificación','densidad'],traza:'normativa'},
+  {kw:['riesgo','inund'],traza:'riesgo_ambiental'},
+  {kw:['proteg','sinap','ambiental','conservación'],traza:'area_protegida'},
+  {kw:['pendiente','clase','agrológic'],traza:'suelo'},
+  {kw:['población','poblacion','densidad poblac','demograf'],traza:'demografia'},
+  {kw:['huella','construida','cobertura'],traza:'urbanizacion'}
+];
+function _trazaCapa(l){
+  // 1) por id exacto
+  if(l.id&&ABC_TRAZABILIDAD[l.id])return ABC_TRAZABILIDAD[l.id];
+  // 2) por dimensión si existe
+  if(l.dimension&&ABC_TRAZABILIDAD[l.dimension])return ABC_TRAZABILIDAD[l.dimension];
+  // 3) por palabra clave del label
+  var lab=(l.label||'').toLowerCase();
+  for(var i=0;i<ABC_TRAZA_KEYWORDS.length;i++){
+    var e=ABC_TRAZA_KEYWORDS[i];
+    for(var j=0;j<e.kw.length;j++){
+      if(lab.indexOf(e.kw[j])>=0)return ABC_TRAZABILIDAD[e.traza];
+    }
+  }
+  // 4) último recurso: derivado (no debería ocurrir con capas estándar)
+  return {fuente:'ABC Territorial Intelligence',anio:String(new Date().getFullYear()),tipo:'Análisis derivado',confianza:'Referencial'};
 }
-// Genera la tabla HTML de trazabilidad a partir de las capas del análisis
 function _tablaTrazabilidad(r){
   if(!r.breakdown||r.breakdown.length===0)return '';
-  // Agrupar por tipo de capa para no repetir fuentes
-  var tiposVistos={};
+  var vistos={};
   var filas=[];
   r.breakdown.forEach(function(l){
-    var tipo=l.type||l.t||l.label;
-    // Intentar mapear por el tipo conocido; si no, por la etiqueta
-    var traza=null;
-    for(var k in ABC_TRAZABILIDAD){
-      if(l.label&&l.label.indexOf(k)>=0){traza=ABC_TRAZABILIDAD[k];tipo=k;break;}
-    }
-    if(!traza)traza=_trazaDe(tipo);
-    if(tiposVistos[tipo])return;
-    tiposVistos[tipo]=true;
-    var colorConf=traza.confianza==='Alta'?'#1B5E20':(traza.confianza==='Media'?'#F39C12':'#888');
+    var traza=_trazaCapa(l);
+    // Evitar filas duplicadas de la misma fuente+tipo
+    var clave=traza.fuente+'|'+traza.tipo;
+    if(vistos[clave])return;
+    vistos[clave]=true;
+    var colorConf=traza.confianza==='Alta'?'#1B5E20':(traza.confianza==='Media'?'#F39C12':(traza.confianza==='Referencial'?'#7B1FA2':'#888'));
     filas.push('<tr><td>'+(l.icon||'')+' '+l.label+'</td><td>'+traza.fuente+'</td><td>'+traza.anio+'</td><td>'+traza.tipo+'</td><td style="color:'+colorConf+';font-weight:600">'+traza.confianza+'</td></tr>');
   });
   return '<h2>Trazabilidad de Datos</h2>'
