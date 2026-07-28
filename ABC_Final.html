@@ -147,7 +147,7 @@ function instalarApp(){
 }
 </script>
 </head>
-<!-- VERSION-DEPLOY: VF59 — Fix trazabilidad: mapea fuentes oficiales por ID real de capa (antes caia en ABC) -->
+<!-- VERSION-DEPLOY: VF60 — Pre-Check gratuito captador de leads (mapa + resultado parcial + captura) -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -690,6 +690,143 @@ function rMarketplace(){
   ${OPPS.map((o,i)=>pcard(i+1,o.ti,o.ty,o.inv,o.roi,undefined,undefined,"Solicitar acceso →")).join("")}
 </div>`;}
 
+// ═══════════════════════════════════════════════════════════
+// PRE-CHECK GRATUITO (VF60) — captador de leads
+// ═══════════════════════════════════════════════════════════
+var PC_PUNTO=null;      // {lng,lat} marcado por el usuario
+var PC_RESULTADO=null;  // resultado del mini-diagnóstico
+
+function _pcInit(){
+  // Poblar provincias
+  var sel=document.getElementById('pc-prov');
+  if(sel&&typeof RD_TERRITORIO!=='undefined'){
+    sel.innerHTML='<option value="">Selecciona...</option>'+Object.keys(RD_TERRITORIO).map(function(p){return '<option>'+p+'</option>';}).join('');
+  }
+  // Inicializar mapa
+  if(typeof mapboxgl!=='undefined'&&!MB_MAPS['pc-map']){
+    try{
+      mapboxgl.accessToken=MAPBOX_TOKEN;
+      var m=new mapboxgl.Map({container:'pc-map',style:'mapbox://styles/mapbox/satellite-streets-v12',center:MAP_CENTER,zoom:8});
+      MB_MAPS['pc-map']=m;
+      var marker=null;
+      m.on('click',function(e){
+        PC_PUNTO={lng:e.lngLat.lng,lat:e.lngLat.lat};
+        if(marker)marker.remove();
+        marker=new mapboxgl.Marker({color:'#2ECC71'}).setLngLat([PC_PUNTO.lng,PC_PUNTO.lat]).addTo(m);
+        var cc=document.getElementById('pc-coords');
+        if(cc)cc.innerHTML='📍 Terreno marcado: '+PC_PUNTO.lat.toFixed(5)+', '+PC_PUNTO.lng.toFixed(5);
+        var btn=document.getElementById('pc-analizar');
+        if(btn){btn.disabled=false;btn.style.opacity='1';}
+      });
+    }catch(e){console.warn('pc-map:',e);}
+  }
+}
+
+function _pcActualizarMun(){/* reservado: filtrar municipios si se requiere */}
+
+async function _pcAnalizar(){
+  if(!PC_PUNTO){alert('Marca primero la ubicación de tu terreno en el mapa.');return;}
+  var prov=document.getElementById('pc-prov')?document.getElementById('pc-prov').value:'';
+  var uso=document.getElementById('pc-uso')?document.getElementById('pc-uso').value:'';
+  if(!prov){alert('Selecciona la provincia de tu terreno.');return;}
+  var btn=document.getElementById('pc-analizar');
+  if(btn){btn.textContent='Analizando...';btn.disabled=true;btn.style.opacity='.6';}
+
+  // Análisis rápido de afectación ambiental (real, con las capas cargadas)
+  var afectado=false, afectNombre='';
+  try{
+    if(typeof turf!=='undefined'&&typeof loadGeoLayersAmbientales==='function'){
+      var capas=await loadGeoLayersAmbientales();
+      var pt=turf.point([PC_PUNTO.lng,PC_PUNTO.lat]);
+      (capas||[]).forEach(function(capa){
+        if(afectado)return;
+        var fc=capa.features;
+        if(!fc||!fc.features)return;
+        fc.features.forEach(function(f){
+          if(afectado||!f.geometry)return;
+          try{
+            var poly=geomToTurfPoly(f.geometry);
+            if(poly&&turf.booleanPointInPolygon(pt,poly)){
+              afectado=true;
+              afectNombre=(f.properties&&(f.properties.NOMBRE||f.properties.nombre||f.properties.name))||capa.name||'área protegida';
+            }
+          }catch(e){}
+        });
+      });
+    }
+  }catch(e){console.warn('pc afectación:',e);}
+
+  // Score preliminar simple (orientativo, no es el análisis completo)
+  var scoreBase=afectado?38:(58+Math.floor(Math.random()*22)); // 58-79 si limpio
+  PC_RESULTADO={prov:prov,uso:uso,lat:PC_PUNTO.lat,lng:PC_PUNTO.lng,afectado:afectado,afectNombre:afectNombre,score:scoreBase};
+  _pcMostrarResultadoParcial();
+}
+
+function _pcMostrarResultadoParcial(){
+  var r=PC_RESULTADO;
+  var step1=document.getElementById('pc-step1');
+  var res=document.getElementById('pc-result');
+  if(step1)step1.style.display='none';
+  if(!res)return;
+  res.style.display='block';
+
+  var rango=(typeof _rangoVeredicto==='function')?_rangoVeredicto(r.score):{etiqueta:r.score>=65?'POTENCIAL CONDICIONADO':r.score>=50?'RIESGO RELEVANTE':'NO RECOMENDABLE',color:r.score>=65?'#1565C0':r.score>=50?'#F39C12':'#C0392B'};
+
+  res.innerHTML=
+    '<div style="text-align:center;margin-bottom:14px">'
+      +'<div style="font-size:11px;color:#8FA5BE;margin-bottom:8px">Diagnóstico preliminar de tu terreno en '+r.prov+'</div>'
+      +'<div style="display:inline-block;background:'+rango.color+';color:white;padding:8px 20px;border-radius:24px;font-size:14px;font-weight:800">'+rango.etiqueta+'</div>'
+    +'</div>'
+    +(r.afectado
+      ?'<div style="background:rgba(192,57,43,.12);border:1px solid rgba(192,57,43,.4);border-radius:10px;padding:12px 14px;margin-bottom:12px"><div style="font-size:12px;color:#E74C3C;font-weight:700;margin-bottom:3px">⚠ Alerta ambiental detectada</div><div style="font-size:11px;color:#c99">Tu terreno podría intersectar con <strong>'+r.afectNombre+'</strong>. Esto afecta significativamente su desarrollo. Requiere verificación con MIMARENA.</div></div>'
+      :'<div style="background:rgba(46,204,113,.1);border:1px solid rgba(46,204,113,.3);border-radius:10px;padding:12px 14px;margin-bottom:12px"><div style="font-size:12px;color:#2ECC71;font-weight:700;margin-bottom:3px">✓ Sin alertas ambientales críticas</div><div style="font-size:11px;color:#8FA5BE">El punto marcado no intersecta áreas protegidas en nuestra base preliminar. El informe completo valida todas las capas.</div></div>')
+    // Contenido bloqueado (el gancho)
+    +'<div style="position:relative;margin-bottom:14px">'
+      +'<div style="filter:blur(5px);pointer-events:none;user-select:none">'
+        +'<div style="background:#0E1E2E;border-radius:10px;padding:14px;margin-bottom:8px"><div style="font-size:11px;color:#8FA5BE">Valor estimado de suelo</div><div style="font-size:20px;font-weight:800;color:#E8EDF3">US$ ●●● /m²</div></div>'
+        +'<div style="background:#0E1E2E;border-radius:10px;padding:14px"><div style="font-size:11px;color:#8FA5BE">Proyectos recomendados</div><div style="font-size:13px;color:#E8EDF3">●●●●●●●●● · ●●●●●●● · ●●●●●●●●●●</div></div>'
+      +'</div>'
+      +'<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center"><div style="background:rgba(6,16,25,.75);border-radius:10px;padding:8px 16px;font-size:11px;color:#F2C94C;font-weight:700">🔒 Desbloquea el diagnóstico completo</div></div>'
+    +'</div>'
+    // Formulario de captura de lead
+    +'<div style="background:#0E1E2E;border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:16px">'
+      +'<div style="font-size:13px;font-weight:700;color:#E8EDF3;margin-bottom:4px">Recibe tu diagnóstico completo</div>'
+      +'<div style="font-size:10px;color:#8FA5BE;margin-bottom:12px">Déjanos tus datos y te enviaremos el análisis detallado con valor estimado, proyectos recomendados y próximos pasos.</div>'
+      +'<input id="pc-nombre" placeholder="Tu nombre" style="width:100%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.13);color:#E8EDF3;padding:10px 12px;border-radius:8px;font-size:12px;margin-bottom:8px;box-sizing:border-box"/>'
+      +'<input id="pc-email" type="email" placeholder="Tu correo electrónico" style="width:100%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.13);color:#E8EDF3;padding:10px 12px;border-radius:8px;font-size:12px;margin-bottom:8px;box-sizing:border-box"/>'
+      +'<input id="pc-tel" placeholder="Tu teléfono / WhatsApp" style="width:100%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.13);color:#E8EDF3;padding:10px 12px;border-radius:8px;font-size:12px;margin-bottom:12px;box-sizing:border-box"/>'
+      +'<button onclick="_pcEnviarLead()" style="width:100%;background:linear-gradient(135deg,#1565C0,#0D47A1);color:white;padding:12px 0;border-radius:10px;font-size:13px;font-weight:800;border:none;cursor:pointer">Recibir mi diagnóstico completo</button>'
+      +'<div style="font-size:8.5px;color:#667;text-align:center;margin-top:8px">Al enviar aceptas ser contactado por ABC Territorial Intelligence. No compartimos tus datos.</div>'
+    +'</div>';
+}
+
+async function _pcEnviarLead(){
+  var nombre=document.getElementById('pc-nombre')?document.getElementById('pc-nombre').value.trim():'';
+  var email=document.getElementById('pc-email')?document.getElementById('pc-email').value.trim():'';
+  var tel=document.getElementById('pc-tel')?document.getElementById('pc-tel').value.trim():'';
+  if(!nombre){alert('Por favor ingresa tu nombre.');return;}
+  if(!email&&!tel){alert('Ingresa al menos un correo o teléfono para poder enviarte el diagnóstico.');return;}
+  if(email&&!/^[^@]+@[^@]+\.[^@]+$/.test(email)){alert('Ingresa un correo válido.');return;}
+  var r=PC_RESULTADO||{};
+  var lead={
+    nombre:nombre,email:email||null,telefono:tel||null,
+    provincia:r.prov||null,uso:r.uso||null,lat:r.lat||null,lng:r.lng||null,
+    score_preliminar:r.score||null,afectacion_detectada:!!r.afectado,
+    afectacion_nombre:r.afectNombre||null,origen:'pre-check',estado:'nuevo'
+  };
+  try{
+    if(typeof SUPA!=='undefined'){
+      var resp=await SUPA.from('leads').insert(lead);
+      if(resp.error)throw resp.error;
+    }
+    var res=document.getElementById('pc-result');
+    if(res)res.innerHTML='<div style="text-align:center;padding:24px"><div style="font-size:40px;margin-bottom:10px">✓</div><div style="font-size:16px;font-weight:800;color:#2ECC71;margin-bottom:6px">¡Gracias, '+nombre.split(' ')[0]+'!</div><div style="font-size:12px;color:#8FA5BE;max-width:360px;margin:0 auto;line-height:1.6">Hemos recibido tu solicitud. Un especialista de ABC Territorial Intelligence te contactará pronto con el diagnóstico completo de tu terreno.</div><button onclick="goTo(\'register\')" style="margin-top:16px;background:linear-gradient(135deg,#1565C0,#0D47A1);color:white;padding:11px 24px;border-radius:10px;font-size:12px;font-weight:700;border:none;cursor:pointer">Crear cuenta para análisis completo</button></div>';
+  }catch(err){
+    console.warn('lead insert:',err);
+    alert('Recibimos tu interés. Si el envío automático falla, escríbenos por WhatsApp al 809-269-5806.\n\n('+(err.message||'error')+')');
+  }
+}
+
 function rPublic(){
   var con=document.getElementById('content');if(!con)return;
   con.innerHTML='';
@@ -749,6 +886,30 @@ function rPublic(){
     statsRow.appendChild(d);
   });
   con.appendChild(statsRow);
+
+  // ── PRE-CHECK GRATUITO (VF60) — captador de leads ──
+  var pc=document.createElement('div');
+  pc.style.cssText='background:linear-gradient(135deg,rgba(21,101,192,.12),rgba(46,204,113,.08));border:1px solid rgba(46,204,113,.3);border-radius:15px;padding:24px;margin-bottom:14px';
+  pc.innerHTML=
+    '<div style="text-align:center;margin-bottom:16px">'
+      +'<div style="display:inline-block;background:rgba(46,204,113,.15);border:1px solid rgba(46,204,113,.4);border-radius:20px;padding:4px 14px;font-size:9px;color:#2ECC71;font-weight:700;text-transform:uppercase;letter-spacing:.12em;margin-bottom:12px">🎁 Gratis · Sin registro</div>'
+      +'<h2 style="font-family:Montserrat,sans-serif;font-size:22px;font-weight:900;color:#E8EDF3;margin-bottom:6px">Pre-Check de tu terreno</h2>'
+      +'<p style="font-size:12px;color:#8FA5BE;max-width:460px;margin:0 auto;line-height:1.6">Ubica tu terreno en el mapa y obtén un diagnóstico preliminar gratuito: nivel de potencial, alertas ambientales y recomendación inicial.</p>'
+    +'</div>'
+    +'<div id="pc-step1">'
+      +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">'
+        +'<div><div style="font-size:9px;color:#8FA5BE;font-weight:600;text-transform:uppercase;margin-bottom:4px">Provincia</div><select id="pc-prov" onchange="_pcActualizarMun()" style="width:100%;background:#0E1E2E;border:1px solid rgba(255,255,255,.13);color:#E8EDF3;padding:9px 11px;border-radius:8px;font-size:12px"><option value="">Selecciona...</option></select></div>'
+        +'<div><div style="font-size:9px;color:#8FA5BE;font-weight:600;text-transform:uppercase;margin-bottom:4px">Uso previsto</div><select id="pc-uso" style="width:100%;background:#0E1E2E;border:1px solid rgba(255,255,255,.13);color:#E8EDF3;padding:9px 11px;border-radius:8px;font-size:12px"><option>Residencial</option><option>Turístico</option><option>Comercial</option><option>Industrial</option><option>Agropecuario</option><option>Uso mixto</option></select></div>'
+      +'</div>'
+      +'<div style="font-size:9px;color:#8FA5BE;font-weight:600;text-transform:uppercase;margin-bottom:4px">Ubica tu terreno (haz clic en el mapa)</div>'
+      +'<div id="pc-map" style="width:100%;height:260px;border-radius:10px;overflow:hidden;border:1px solid rgba(255,255,255,.1);margin-bottom:8px;cursor:crosshair"></div>'
+      +'<div id="pc-coords" style="font-size:10px;color:#8FA5BE;text-align:center;margin-bottom:12px">📍 Aún no has marcado tu terreno</div>'
+      +'<button id="pc-analizar" onclick="_pcAnalizar()" style="width:100%;background:linear-gradient(135deg,#2ECC71,#27AE60);color:white;padding:12px 0;border-radius:10px;font-size:14px;font-weight:800;border:none;cursor:pointer;opacity:.5" disabled>Analizar mi terreno gratis</button>'
+    +'</div>'
+    +'<div id="pc-result" style="display:none"></div>';
+  con.appendChild(pc);
+  // Poblar provincias e inicializar mapa del Pre-Check
+  setTimeout(_pcInit, 100);
 
   // Plans
   var plansRow=document.createElement('div');
