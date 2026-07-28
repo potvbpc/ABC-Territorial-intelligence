@@ -147,7 +147,7 @@ function instalarApp(){
 }
 </script>
 </head>
-<!-- VERSION-DEPLOY: VF57 — Codigo unico + QR de verificacion + vigencia en el informe -->
+<!-- VERSION-DEPLOY: VF58 — Tabla de trazabilidad de datos (fuente/año/tipo/confianza) — cierra Bloque 1 -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -5451,6 +5451,57 @@ function _qrImgUrl(texto, size){
   return 'https://api.qrserver.com/v1/create-qr-code/?size='+size+'x'+size+'&margin=0&data='+encodeURIComponent(texto);
 }
 
+// ── Catálogo de trazabilidad de datos (VF58) ──
+// Mapea cada tipo de capa a su fuente, año de referencia, tipo de dato
+// y nivel de confianza. Refuerza la credibilidad del informe permitiendo
+// al lector verificar el origen de cada dato.
+var ABC_TRAZABILIDAD={
+  'Movilidad':          {fuente:'MOPC / OpenStreetMap',anio:'2024',tipo:'Red vial oficial + colaborativa',confianza:'Alta'},
+  'Vías principales':   {fuente:'MOPC',anio:'2024',tipo:'Red vial oficial',confianza:'Alta'},
+  'Transporte público': {fuente:'OMSA / INTRANT',anio:'2023',tipo:'Rutas de transporte',confianza:'Media'},
+  'Mercado':            {fuente:'ACOPROVI / Banco Central RD',anio:'2025',tipo:'Referencia de mercado',confianza:'Media'},
+  'Valor referencial suelo':{fuente:'ACOPROVI / ONE',anio:'2025',tipo:'Estimación de mercado',confianza:'Media'},
+  'Zonas comerciales':  {fuente:'ONE / Ayuntamientos',anio:'2023',tipo:'Uso de suelo comercial',confianza:'Media'},
+  'Centros de empleo':  {fuente:'ONE',anio:'2022',tipo:'Censo económico',confianza:'Media'},
+  'Turismo':            {fuente:'MITUR / INFRATUR',anio:'2024',tipo:'Polos y zonas turísticas',confianza:'Alta'},
+  'Infraestructura':    {fuente:'CEPM / CDEEE / INAPA',anio:'2023',tipo:'Cobertura de servicios',confianza:'Media'},
+  'Restricción crítica':{fuente:'MIMARENA (SINAP)',anio:'2024',tipo:'Áreas protegidas oficiales',confianza:'Alta'},
+  'Riesgo':             {fuente:'COE / INDRHI / SGN',anio:'2023',tipo:'Amenazas naturales',confianza:'Media'},
+  'Suelo':              {fuente:'Ministerio de Agricultura',anio:'2022',tipo:'Capacidad agrológica',confianza:'Media'},
+  'Demografía':         {fuente:'ONE (Censo 2022)',anio:'2022',tipo:'Densidad poblacional',confianza:'Alta'},
+  'Urbanización':       {fuente:'OpenStreetMap / IGN',anio:'2024',tipo:'Huella construida',confianza:'Media'},
+  'Normativa propuesta':{fuente:'Propuesta ABC (Ley 368-22, 176-07)',anio:'2025',tipo:'Criterio normativo propio',confianza:'Referencial'},
+  'valor_suelo':        {fuente:'Catastro / Mercado',anio:'2025',tipo:'Precio geoespacial',confianza:'Variable'}
+};
+function _trazaDe(tipo){
+  return ABC_TRAZABILIDAD[tipo]||{fuente:'ABC Territorial Intelligence',anio:String(new Date().getFullYear()),tipo:'Análisis derivado',confianza:'Referencial'};
+}
+// Genera la tabla HTML de trazabilidad a partir de las capas del análisis
+function _tablaTrazabilidad(r){
+  if(!r.breakdown||r.breakdown.length===0)return '';
+  // Agrupar por tipo de capa para no repetir fuentes
+  var tiposVistos={};
+  var filas=[];
+  r.breakdown.forEach(function(l){
+    var tipo=l.type||l.t||l.label;
+    // Intentar mapear por el tipo conocido; si no, por la etiqueta
+    var traza=null;
+    for(var k in ABC_TRAZABILIDAD){
+      if(l.label&&l.label.indexOf(k)>=0){traza=ABC_TRAZABILIDAD[k];tipo=k;break;}
+    }
+    if(!traza)traza=_trazaDe(tipo);
+    if(tiposVistos[tipo])return;
+    tiposVistos[tipo]=true;
+    var colorConf=traza.confianza==='Alta'?'#1B5E20':(traza.confianza==='Media'?'#F39C12':'#888');
+    filas.push('<tr><td>'+(l.icon||'')+' '+l.label+'</td><td>'+traza.fuente+'</td><td>'+traza.anio+'</td><td>'+traza.tipo+'</td><td style="color:'+colorConf+';font-weight:600">'+traza.confianza+'</td></tr>');
+  });
+  return '<h2>Trazabilidad de Datos</h2>'
+    +'<p style="font-size:9pt;color:#555;margin-bottom:8px">Origen, vigencia y nivel de confianza de cada fuente utilizada en el análisis. Los datos de terceros conservan la responsabilidad de su fuente original.</p>'
+    +'<table><thead><tr><th>Capa / Factor</th><th>Fuente</th><th>Año ref.</th><th>Tipo de dato</th><th>Confianza</th></tr></thead><tbody>'
+    +filas.join('')
+    +'</tbody></table>';
+}
+
 // ── Sistema de veredictos por rangos (VF56) ──
 // Rangos editables. Cada veredicto explica su significado, evitando el
 // binario apto/no apto. La afectación crítica y la no rentabilidad tienen
@@ -5666,6 +5717,7 @@ function verCertificado(){
     '<h2>Desglose por Capa GIS</h2><table><thead><tr><th>Capa</th><th>Score (xᵢ)</th><th>Peso (wᵢ)</th><th>Contribución</th><th>Detalle</th></tr></thead><tbody>'+
     r.breakdown.map(function(l){return'<tr><td>'+l.icon+' '+l.label+'</td><td>'+l.xi+'/100</td><td>'+l.wi+'%</td><td>'+l.contribution+' pts</td><td>'+(r.metrics_detail[l.id]?r.metrics_detail[l.id].desc:'—')+'</td></tr>';}).join('')+
     '</tbody></table>'+
+    _tablaTrazabilidad(r)+
     (r.restrictions.length>0?'<h2>Restricciones</h2><ul>'+r.restrictions.map(function(x){return'<li>'+x+'</li>';}).join('')+'</ul>':'')+
     '<h2>Valoración por Residual Land Value Method (RLVM)</h2>'+
     (r.rlvm ? 
