@@ -136,7 +136,7 @@ function instalarApp(){
 }
 </script>
 </head>
-<!-- VERSION-DEPLOY: VF65 — Diagnostico de punto vs poligonos SINAP (deteccion de inversion de coordenadas) -->
+<!-- VERSION-DEPLOY: VF66 — Diagnostico mejorado: bounding box de la capa SINAP para confirmar inversion o proyeccion -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -684,57 +684,61 @@ function rMarketplace(){
 // ═══════════════════════════════════════════════════════════
 async function diagnosticarPunto(lat,lng){
   // Diagnóstico: por qué un punto no detecta afectación
-  // Uso: diagnosticarPunto(18.56612, -68.42241)
   console.log('%c=== DIAGNÓSTICO DE PUNTO ('+lat+', '+lng+') ===','font-weight:bold;font-size:14px;color:#1565C0');
   if(typeof turf==='undefined'){console.error('Turf no disponible');return;}
   var pt=turf.point([lng,lat]);
 
-  // Cargar la capa ambiental (SINAP)
   var capas=await loadGeoLayersAmbientales();
   console.log('Capas ambientales:',capas.length);
   capas.forEach(function(capa){
     if(!capa.features||!capa.features.features){console.log('  Capa',capa.name,'sin features');return;}
     var feats=capa.features.features;
     console.log('%c\nCapa: '+capa.name+' ('+feats.length+' polígonos)','font-weight:bold;color:#2ECC71');
-    // Analizar el rango de coordenadas del primer polígono
-    var primeraGeom=feats[0]&&feats[0].geometry;
-    if(primeraGeom){
-      var muestra=primeraGeom.coordinates;
-      while(Array.isArray(muestra)&&Array.isArray(muestra[0]))muestra=muestra[0];
-      console.log('  Primera coordenada del primer polígono:',muestra,'(así viene en la BD)');
-      console.log('  → Interpretación: primer valor='+muestra[0]+', segundo valor='+muestra[1]);
-      if(muestra[0]>0&&muestra[0]<25){
-        console.log('  %c⚠ POSIBLE INVERSIÓN: el primer valor ('+muestra[0]+') parece una LATITUD, debería ser longitud negativa','color:#E74C3C;font-weight:bold');
+
+    // 1) Bounding box REAL de toda la capa (rango de coordenadas)
+    var minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
+    function escanear(c){
+      if(!Array.isArray(c))return;
+      if(typeof c[0]==='number'&&typeof c[1]==='number'){
+        if(c[0]<minX)minX=c[0];if(c[0]>maxX)maxX=c[0];
+        if(c[1]<minY)minY=c[1];if(c[1]>maxY)maxY=c[1];
+        return;
       }
+      c.forEach(escanear);
     }
-    // Contar cuántos polígonos contienen el punto (con y sin corrección)
-    var dentroNormal=0, dentroInvertido=0, minDist=Infinity;
+    feats.forEach(function(f){if(f.geometry&&f.geometry.coordinates)escanear(f.geometry.coordinates);});
+    console.log('  Rango de coordenadas de la capa (tal como está en la BD):');
+    console.log('    Primer valor (X): de '+minX.toFixed(4)+' a '+maxX.toFixed(4));
+    console.log('    Segundo valor (Y): de '+minY.toFixed(4)+' a '+maxY.toFixed(4));
+    console.log('  Para RD correcto: X (longitud) debe estar entre -72 y -68 (NEGATIVO), Y (latitud) entre 17 y 20 (positivo)');
+    if(minX>0&&minX>=17&&minX<=20){
+      console.log('  %c⚠⚠ INVERSIÓN CONFIRMADA: el PRIMER valor está en rango 17-20 (es latitud, no longitud). Las coordenadas están [lat,lng] y deberían ser [lng,lat].','color:#E74C3C;font-weight:bold;font-size:13px');
+    } else if(minX>=-72&&maxX<=-68&&minY>=17&&maxY<=20){
+      console.log('  %c✓ Las coordenadas parecen estar en el orden correcto para RD','color:#2ECC71;font-weight:bold');
+    } else {
+      console.log('  %c⚠ Las coordenadas están fuera del rango esperado de RD. Podría ser otro sistema de proyección (ej. UTM en vez de lat/lng).','color:#F2C94C;font-weight:bold');
+      console.log('  (Si los valores son números grandes como 400000, 2000000, es UTM y necesita reproyección a EPSG:4326)');
+    }
+
+    // 2) Probar el punto con corrección (geomToTurfPoly) y sin ella
+    var conCorrector=0, sinCorrector=0, minDist=Infinity;
     feats.forEach(function(f){
       if(!f.geometry)return;
       try{
-        var poly=geomToTurfPoly(f.geometry);
-        if(poly&&turf.booleanPointInPolygon(pt,poly))dentroNormal++;
-        // Probar con el punto invertido
-        var ptInv=turf.point([lat,lng]);
-        if(poly&&turf.booleanPointInPolygon(ptInv,poly))dentroInvertido++;
-        // Distancia al polígono
-        try{
-          var centro=turf.centroid(poly);
-          var d=turf.distance(pt,centro);
-          if(d<minDist)minDist=d;
-        }catch(e){}
+        var poly=geomToTurfPoly(f.geometry); // con corrector de inversión
+        if(poly&&turf.booleanPointInPolygon(pt,poly))conCorrector++;
+        // sin corrector: turf directo
+        var polyRaw=null;
+        try{polyRaw=(f.geometry.type==='MultiPolygon')?turf.multiPolygon(f.geometry.coordinates):turf.polygon(f.geometry.coordinates);}catch(e){}
+        if(polyRaw&&turf.booleanPointInPolygon(pt,polyRaw))sinCorrector++;
+        if(poly){try{var d=turf.distance(pt,turf.centroid(poly));if(d<minDist)minDist=d;}catch(e){}}
       }catch(e){}
     });
-    console.log('  Polígonos que contienen tu punto (normal):',dentroNormal);
-    console.log('  Polígonos que contienen tu punto (invertido):',dentroInvertido);
-    console.log('  Distancia al polígono más cercano:',minDist.toFixed(2),'km');
-    if(dentroNormal===0&&dentroInvertido>0){
-      console.log('  %c⚠ El punto SÍ cae dentro si se invierten las coordenadas → problema de orden lat/lng','color:#E74C3C;font-weight:bold');
-    } else if(dentroNormal>0){
-      console.log('  %c✓ El punto cae dentro correctamente','color:#2ECC71;font-weight:bold');
-    } else {
-      console.log('  %cEl punto no cae en ningún polígono de esta capa (ni normal ni invertido)','color:#F2C94C');
-    }
+    console.log('  Polígonos que contienen el punto CON corrector geomToTurfPoly:',conCorrector);
+    console.log('  Polígonos que contienen el punto SIN corrector (turf directo):',sinCorrector);
+    console.log('  Distancia (con corrector) al polígono más cercano:',minDist===Infinity?'N/A':minDist.toFixed(1)+' km');
+    if(conCorrector>0)console.log('  %c✓ El corrector SÍ detecta la afectación','color:#2ECC71;font-weight:bold');
+    else if(minDist>500)console.log('  %c⚠ El polígono más cercano está a '+minDist.toFixed(0)+' km — los polígonos NO están sobre RD (confirma inversión o proyección incorrecta)','color:#E74C3C;font-weight:bold');
   });
   console.log('%c\n=== FIN ===','font-weight:bold;color:#1565C0');
 }
