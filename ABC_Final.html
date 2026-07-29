@@ -136,7 +136,7 @@ function instalarApp(){
 }
 </script>
 </head>
-<!-- VERSION-DEPLOY: VF75 — Verificador de archivo: dice cuantas areas contiene el GeoJSON antes de subirlo -->
+<!-- VERSION-DEPLOY: VF76 — CRM de leads: ver, filtrar, cambiar estado y contactar prospectos del Pre-Check -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -281,7 +281,7 @@ function buildNav(){
   const isProp=ROLE==="propietario";
   const noAuth=!ROLE;
   const grp=isA
-    ?[{items:[{id:"overview",i:"⬛",l:"Admin Dashboard"},{id:"layers",i:"▧",l:"Capas del Motor"},{id:"opps",i:"🌐",l:"Oportunidades"},{id:"pricing",i:"💳",l:"Planes y Precios"},{id:"users",i:"👥",l:"Usuarios"},{id:"commissions",i:"💰",l:"Comisiones"},{id:"geolayers",i:"🗺",l:"Capas Geográficas"},{id:"zones",i:"🛡",l:"Zonas de Restricción"},{id:"settings",i:"🎨",l:"Configuración"}]}]
+    ?[{items:[{id:"overview",i:"⬛",l:"Admin Dashboard"},{id:"layers",i:"▧",l:"Capas del Motor"},{id:"opps",i:"🌐",l:"Oportunidades"},{id:"leads",i:"🎯",l:"Leads / CRM"},{id:"pricing",i:"💳",l:"Planes y Precios"},{id:"users",i:"👥",l:"Usuarios"},{id:"commissions",i:"💰",l:"Comisiones"},{id:"geolayers",i:"🗺",l:"Capas Geográficas"},{id:"zones",i:"🛡",l:"Zonas de Restricción"},{id:"settings",i:"🎨",l:"Configuración"}]}]
     :noAuth
     ?[{title:null,items:[{id:"public",i:"🌍",l:"Portal Público"},{id:"login",i:"🔐",l:"Iniciar sesión"},{id:"register",i:"✨",l:"Crear cuenta gratis"}]}]
     :isInv
@@ -3281,6 +3281,7 @@ function render(){
     case "commissions": rCommissions();break;
     case "settings":    rSettings();     break;
     case "zones":       rZones();        break;
+    case "leads":       rLeads();        break;
     case "geolayers":   rGeoLayers();    break;
     case "register":    rRegister();     break;
     case "upload":      rUpload();       break;
@@ -5435,6 +5436,130 @@ async function eliminarGeoLayer(id){
     console.error('[Eliminar capa] Error:',e);
     alert('No se pudo eliminar: '+(e.message||'error desconocido')+'\n\nSi el mensaje menciona permisos o RLS, la tabla geo_layers necesita una política de DELETE en Supabase.');
   }
+}
+
+var LEADS_LIST=[];
+async function rLeads(){
+  var pt=document.getElementById('page-title');if(pt)pt.textContent='Leads / CRM';
+  var ps=document.getElementById('page-sub');if(ps)ps.textContent='Prospectos captados por el Pre-Check';
+  var con=document.getElementById('content');
+  con.innerHTML='<div style="max-width:1100px;margin:0 auto"><div style="text-align:center;padding:40px;color:'+C.tm+'">Cargando leads...</div></div>';
+  try{
+    if(typeof SUPA==='undefined'){con.innerHTML='<div style="max-width:1100px;margin:0 auto;color:#E74C3C;padding:20px">Sin conexión al servidor.</div>';return;}
+    var r=await SUPA.from('leads').select('*').order('created_at',{ascending:false});
+    if(r.error)throw r.error;
+    LEADS_LIST=r.data||[];
+    _renderLeads();
+  }catch(e){
+    con.innerHTML='<div style="max-width:1100px;margin:0 auto;color:#E74C3C;padding:20px">Error cargando leads: '+(e.message||'')+'<br><span style="color:'+C.tm+';font-size:12px">¿Ejecutaste el script ABC_Supabase_leads.sql en Supabase?</span></div>';
+  }
+}
+
+function _renderLeads(){
+  var con=document.getElementById('content');
+  var leads=LEADS_LIST;
+  // Métricas rápidas
+  var total=leads.length;
+  var nuevos=leads.filter(function(l){return (l.estado||'nuevo')==='nuevo';}).length;
+  var contactados=leads.filter(function(l){return l.estado==='contactado';}).length;
+  var clientes=leads.filter(function(l){return l.estado==='cliente';}).length;
+  var conAfect=leads.filter(function(l){return l.afectacion_detectada;}).length;
+
+  var estados={nuevo:{l:'Nuevo',c:'#42A5F5'},contactado:{l:'Contactado',c:'#F2C94C'},calificado:{l:'Calificado',c:'#9B59B6'},cliente:{l:'Cliente',c:'#2ECC71'},descartado:{l:'Descartado',c:'#888'}};
+
+  var html='<div style="max-width:1100px;margin:0 auto">';
+  // Tarjetas de métricas
+  html+='<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:20px">';
+  [['Total',total,'#E8EDF3'],['Nuevos',nuevos,'#42A5F5'],['Contactados',contactados,'#F2C94C'],['Clientes',clientes,'#2ECC71'],['Con afectación',conAfect,'#E74C3C']].forEach(function(m){
+    html+='<div style="background:'+C.c1+';border:1px solid '+C.bd+';border-radius:12px;padding:16px;text-align:center"><div style="font-size:26px;font-weight:900;color:'+m[2]+'">'+m[1]+'</div><div style="font-size:10px;color:'+C.tm+';text-transform:uppercase;letter-spacing:.05em;margin-top:4px">'+m[0]+'</div></div>';
+  });
+  html+='</div>';
+
+  if(total===0){
+    html+='<div style="background:'+C.c1+';border:1px solid '+C.bd+';border-radius:14px;padding:40px;text-align:center"><div style="font-size:40px;opacity:.3;margin-bottom:10px">🎯</div><div style="color:'+C.tx+';font-size:15px;font-weight:600;margin-bottom:6px">Aún no hay leads</div><div style="color:'+C.tm+';font-size:12px">Cuando un visitante use el Pre-Check y deje sus datos, aparecerá aquí.</div></div>';
+  } else {
+    // Filtro por estado
+    html+='<div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">';
+    html+='<button onclick="_filtrarLeads(\'todos\')" style="background:rgba(21,101,192,.15);border:1px solid rgba(21,101,192,.3);color:#42A5F5;padding:6px 14px;border-radius:8px;font-size:11px;font-weight:600;cursor:pointer">Todos ('+total+')</button>';
+    Object.keys(estados).forEach(function(k){
+      var n=leads.filter(function(l){return (l.estado||'nuevo')===k;}).length;
+      if(n>0)html+='<button onclick="_filtrarLeads(\''+k+'\')" style="background:rgba(255,255,255,.05);border:1px solid '+C.bd+';color:'+estados[k].c+';padding:6px 14px;border-radius:8px;font-size:11px;font-weight:600;cursor:pointer">'+estados[k].l+' ('+n+')</button>';
+    });
+    html+='</div>';
+
+    // Tabla de leads
+    html+='<div style="background:'+C.c1+';border:1px solid '+C.bd+';border-radius:14px;overflow:hidden">';
+    html+='<table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="border-bottom:2px solid '+C.bd+';background:rgba(255,255,255,.02)">';
+    ['Contacto','Terreno','Diagnóstico','Estado','Fecha','Acción'].forEach(function(th){
+      html+='<th style="text-align:left;padding:12px 10px;color:'+C.tm+';font-size:10px;text-transform:uppercase;letter-spacing:.05em">'+th+'</th>';
+    });
+    html+='</tr></thead><tbody id="leads-tbody">';
+    html+=_leadsRows(leads,estados);
+    html+='</tbody></table></div>';
+  }
+  html+='</div>';
+  con.innerHTML=html;
+}
+
+function _leadsRows(leads,estados){
+  return leads.map(function(l){
+    var est=l.estado||'nuevo';
+    var estInfo=estados[est]||estados.nuevo;
+    var fecha=l.created_at?new Date(l.created_at).toLocaleDateString('es-DO',{day:'2-digit',month:'short',year:'numeric'}):'—';
+    var contacto='<div style="font-weight:700;color:'+C.tx+'">'+(l.nombre||'Sin nombre')+'</div>';
+    if(l.email)contacto+='<div style="font-size:10px;color:'+C.tm+'">📧 '+l.email+'</div>';
+    if(l.telefono)contacto+='<div style="font-size:10px;color:'+C.tm+'">📱 '+l.telefono+'</div>';
+    var terreno='<div style="color:'+C.tx+'">'+(l.provincia||'—')+'</div>';
+    if(l.uso)terreno+='<div style="font-size:10px;color:'+C.tm+'">'+l.uso+'</div>';
+    if(l.lat&&l.lng)terreno+='<div style="font-size:9px;color:'+C.tm+'">📍 '+parseFloat(l.lat).toFixed(4)+', '+parseFloat(l.lng).toFixed(4)+'</div>';
+    var diag='';
+    if(l.score_preliminar!=null)diag+='<div style="color:'+C.tx+'">Score: '+l.score_preliminar+'</div>';
+    if(l.afectacion_detectada)diag+='<div style="font-size:10px;color:#E74C3C;font-weight:600">⚠ Afectación</div>';
+    else diag+='<div style="font-size:10px;color:#2ECC71">✓ Sin alertas</div>';
+    // Selector de estado
+    var selEstado='<select onchange="_cambiarEstadoLead(\''+l.id+'\',this.value)" style="background:#0E1E2E;border:1px solid '+C.bd+';color:'+estInfo.c+';padding:5px 8px;border-radius:7px;font-size:11px;font-weight:600;cursor:pointer">';
+    Object.keys(estados).forEach(function(k){
+      selEstado+='<option value="'+k+'"'+(k===est?' selected':'')+'>'+estados[k].l+'</option>';
+    });
+    selEstado+='</select>';
+    // Botón de contacto rápido (WhatsApp si hay teléfono)
+    var accion='';
+    if(l.telefono){
+      var tel=l.telefono.replace(/[^0-9]/g,'');
+      if(tel.length===10)tel='1'+tel; // RD country code
+      accion+='<a href="https://wa.me/'+tel+'" target="_blank" style="display:inline-block;background:rgba(46,204,113,.15);border:1px solid rgba(46,204,113,.3);color:#2ECC71;padding:5px 10px;border-radius:7px;font-size:11px;text-decoration:none;margin-right:4px">WhatsApp</a>';
+    }
+    if(l.email){
+      accion+='<a href="mailto:'+l.email+'" style="display:inline-block;background:rgba(21,101,192,.15);border:1px solid rgba(21,101,192,.3);color:#42A5F5;padding:5px 10px;border-radius:7px;font-size:11px;text-decoration:none">Email</a>';
+    }
+    return '<tr style="border-bottom:1px solid '+C.bd+'">'
+      +'<td style="padding:12px 10px;vertical-align:top">'+contacto+'</td>'
+      +'<td style="padding:12px 10px;vertical-align:top">'+terreno+'</td>'
+      +'<td style="padding:12px 10px;vertical-align:top">'+diag+'</td>'
+      +'<td style="padding:12px 10px;vertical-align:top">'+selEstado+'</td>'
+      +'<td style="padding:12px 10px;vertical-align:top;color:'+C.tm+';font-size:11px">'+fecha+'</td>'
+      +'<td style="padding:12px 10px;vertical-align:top">'+accion+'</td>'
+      +'</tr>';
+  }).join('');
+}
+
+function _filtrarLeads(estado){
+  var estados={nuevo:{l:'Nuevo',c:'#42A5F5'},contactado:{l:'Contactado',c:'#F2C94C'},calificado:{l:'Calificado',c:'#9B59B6'},cliente:{l:'Cliente',c:'#2ECC71'},descartado:{l:'Descartado',c:'#888'}};
+  var filtrados=estado==='todos'?LEADS_LIST:LEADS_LIST.filter(function(l){return (l.estado||'nuevo')===estado;});
+  var tbody=document.getElementById('leads-tbody');
+  if(tbody)tbody.innerHTML=_leadsRows(filtrados,estados);
+}
+
+async function _cambiarEstadoLead(id,nuevoEstado){
+  try{
+    var r=await SUPA.from('leads').update({estado:nuevoEstado}).eq('id',id);
+    if(r.error)throw r.error;
+    // Actualizar en memoria
+    var lead=LEADS_LIST.find(function(l){return l.id===id;});
+    if(lead)lead.estado=nuevoEstado;
+    // Re-renderizar métricas
+    _renderLeads();
+  }catch(e){alert('No se pudo actualizar el estado: '+(e.message||''));}
 }
 
 async function rZones(){
