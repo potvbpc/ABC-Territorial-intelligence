@@ -147,7 +147,7 @@ function instalarApp(){
 }
 </script>
 </head>
-<!-- VERSION-DEPLOY: VF62 — Fix definitivo Pre-Check: usa detectarAfectacion (motor del informe) para deteccion consistente -->
+<!-- VERSION-DEPLOY: VF63 — Portal: un solo mapa (Pre-Check) + deteccion de afectacion mas robusta con diagnostico -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -734,13 +734,13 @@ async function _pcAnalizar(){
   if(btn){btn.textContent='Analizando...';btn.disabled=true;btn.style.opacity='.6';}
 
   // Análisis de afectación: usa EL MISMO motor del informe completo
-  // (detectarAfectacion), construyendo un pequeño polígono alrededor del
-  // punto marcado. Así la detección es idéntica y consistente.
-  var afectado=false, afectNombre='';
+  // (detectarAfectacion), construyendo un polígono alrededor del punto marcado.
+  var afectado=false, afectNombre='', afectTipo='';
   try{
     if(typeof turf!=='undefined'&&typeof detectarAfectacion==='function'){
-      // Construir un polígono cuadrado de ~40m alrededor del punto
-      var d=0.0002; // ~22m en grados (aprox); da un lote pequeño para el test
+      // Polígono de ~110m de lado alrededor del punto (asegura intersección
+      // incluso si el punto cae cerca del borde de una zona)
+      var d=0.0005; // ~55m en grados a esta latitud
       var lng=PC_PUNTO.lng, lat=PC_PUNTO.lat;
       var miniPoligono={
         type:'Polygon',
@@ -748,17 +748,22 @@ async function _pcAnalizar(){
           [lng-d,lat-d],[lng+d,lat-d],[lng+d,lat+d],[lng-d,lat+d],[lng-d,lat-d]
         ]]
       };
+      console.log('[Pre-Check] Analizando punto:',lat.toFixed(5),lng.toFixed(5),'en',PC_RESULTADO_PROV);
       var afect=await detectarAfectacion(miniPoligono, PC_RESULTADO_PROV);
+      console.log('[Pre-Check] Resultado afectación:',afect);
       if(afect&&afect.afectado&&afect.conflictos&&afect.conflictos.length>0){
         afectado=true;
-        afectNombre=afect.conflictos[0].name||'área protegida';
+        afectNombre=afect.conflictos[0].name||'zona restringida';
+        afectTipo=afect.conflictos[0].zone_type||afect.conflictos[0].severity||'';
       }
+    } else {
+      console.warn('[Pre-Check] detectarAfectacion o turf no disponibles');
     }
-  }catch(e){console.warn('pc afectación:',e);}
+  }catch(e){console.warn('[Pre-Check] error afectación:',e);}
 
   // Score preliminar simple (orientativo, no es el análisis completo)
   var scoreBase=afectado?38:(58+Math.floor(Math.random()*22)); // 58-79 si limpio
-  PC_RESULTADO={prov:prov,uso:uso,lat:PC_PUNTO.lat,lng:PC_PUNTO.lng,afectado:afectado,afectNombre:afectNombre,score:scoreBase};
+  PC_RESULTADO={prov:prov,uso:uso,lat:PC_PUNTO.lat,lng:PC_PUNTO.lng,afectado:afectado,afectNombre:afectNombre,afectTipo:afectTipo,score:scoreBase};
   _pcMostrarResultadoParcial();
 }
 
@@ -867,13 +872,7 @@ function rPublic(){
   heroText.appendChild(ctaBtn);
   hero.appendChild(heroText);
 
-  // Satellite map decoration
-  var mapWrap=document.createElement('div');
-  mapWrap.style.cssText='height:220px;background:#0A1724;border-top:1px solid rgba(255,255,255,.06);position:relative;overflow:hidden';
-  mapWrap.innerHTML='<div id="pub-map" style="width:100%;height:100%"></div>'
-    +'<div style="position:absolute;inset:0;background:linear-gradient(to bottom,rgba(6,16,25,.4) 0%,transparent 30%,transparent 70%,rgba(6,16,25,.6) 100%);pointer-events:none"></div>'
-    +'<div style="position:absolute;bottom:12px;left:50%;transform:translateX(-50%);background:rgba(6,16,25,.85);border:1px solid rgba(21,101,192,.4);border-radius:8px;padding:6px 14px;font-size:10px;color:#42A5F5;white-space:nowrap">Analisis territorial en tiempo real · Republica Dominicana</div>';
-  hero.appendChild(mapWrap);
+  // (Mapa decorativo del hero retirado en VF63: el Pre-Check ya tiene su mapa funcional)
   con.appendChild(hero);
 
   // Stats
@@ -946,16 +945,7 @@ function rPublic(){
   footer.appendChild(t1);footer.appendChild(t2);
   con.appendChild(footer);
 
-  // Init decorative map
-  setTimeout(function(){
-    if(typeof mapboxgl!=='undefined'&&!MB_MAPS['pub-map']){
-      try{
-        mapboxgl.accessToken=MAPBOX_TOKEN;
-        var pm=new mapboxgl.Map({container:'pub-map',style:'mapbox://styles/mapbox/satellite-streets-v12',center:[-70.1,18.7],zoom:6.5,interactive:false,attributionControl:false});
-        MB_MAPS['pub-map']=pm;
-      }catch(e){console.warn('pubmap:',e);}
-    }
-  },400);
+  // (Init del mapa decorativo retirado en VF63)
 }
 
 function rAdminOv(){
