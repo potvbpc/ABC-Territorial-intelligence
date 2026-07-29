@@ -136,7 +136,7 @@ function instalarApp(){
 }
 </script>
 </head>
-<!-- VERSION-DEPLOY: VF74 — FIX CRITICO: subir zona preserva TODOS los poligonos del GeoJSON (antes solo el primero) -->
+<!-- VERSION-DEPLOY: VF75 — Verificador de archivo: dice cuantas areas contiene el GeoJSON antes de subirlo -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -5453,7 +5453,7 @@ async function rZones(){
         +'<div><div style="font-size:9px;color:'+C.tm+';font-weight:700;text-transform:uppercase;margin-bottom:4px">Severidad</div><select id="z-sev" style="width:100%;background:#0E1E2E;border:1px solid '+C.bd+';color:'+C.tx+';padding:10px 12px;border-radius:8px;font-size:13px"><option value="critica">Crítica (bloquea)</option><option value="condicionada">Condicionada</option><option value="riesgo">Riesgo</option></select></div>'
         +'<div><div style="font-size:9px;color:'+C.tm+';font-weight:700;text-transform:uppercase;margin-bottom:4px">Fuente</div><select id="z-src" style="width:100%;background:#0E1E2E;border:1px solid '+C.bd+';color:'+C.tx+';padding:10px 12px;border-radius:8px;font-size:13px"><option>MIMARENA</option><option>INDRHI</option><option>ONESVIE</option><option>Otro</option></select></div>'
       +'</div>'
-      +'<div style="margin-bottom:14px"><div style="font-size:9px;color:'+C.tm+';font-weight:700;text-transform:uppercase;margin-bottom:4px">Archivo KML / GeoJSON</div><input type="file" id="z-file" accept=".kml,.geojson,.json" style="width:100%;background:rgba(255,255,255,.06);border:1px solid '+C.bd+';color:'+C.tx+';padding:10px 12px;border-radius:8px;font-size:12px"/></div>'
+      +'<div style="margin-bottom:14px"><div style="font-size:9px;color:'+C.tm+';font-weight:700;text-transform:uppercase;margin-bottom:4px">Archivo KML / GeoJSON</div><input type="file" id="z-file" accept=".kml,.geojson,.json" onchange="verificarArchivoZona()" style="width:100%;background:rgba(255,255,255,.06);border:1px solid '+C.bd+';color:'+C.tx+';padding:10px 12px;border-radius:8px;font-size:12px"/><div id="z-file-info" style="font-size:11px;color:'+C.tm+';margin-top:6px"></div></div>'
       +'<div id="z-status" style="display:none;margin-bottom:14px"></div>'
       +'<button onclick="cargarZona()" style="background:linear-gradient(135deg,#1565C0,#0D47A1);color:white;padding:11px 26px;border-radius:9px;font-size:13px;font-weight:700;border:none;cursor:pointer">Cargar zona al sistema</button>'
       +(window._turfFailed?'<div style="margin-top:12px;font-size:11px;color:#E67E22">⚠ Turf.js no se cargó. La detección de intersección está inactiva hasta recargar la página con conexión.</div>':'')
@@ -5555,6 +5555,58 @@ async function cargarZona(){
       RESTRICTION_ZONES_CACHE=null; // invalidar cache
       cargarListaZonas();
     }catch(err){console.error('cargarZona:',err);showStatus('Error: '+(err.message||'no se pudo cargar'),'red');}
+  };
+  reader.readAsText(file);
+}
+
+function verificarArchivoZona(){
+  var fileInp=document.getElementById('z-file');
+  var info=document.getElementById('z-file-info');
+  if(!fileInp||!fileInp.files||!fileInp.files[0]){if(info)info.textContent='';return;}
+  var file=fileInp.files[0];
+  var ext=file.name.split('.').pop().toLowerCase();
+  var reader=new FileReader();
+  reader.onload=function(e){
+    var txt=e.target.result;
+    var nAreas=0, tipo='', detalle='';
+    try{
+      if(ext==='geojson'||ext==='json'){
+        var parsed=JSON.parse(txt);
+        if(parsed.type==='FeatureCollection'&&parsed.features){
+          nAreas=parsed.features.length;
+          tipo='FeatureCollection';
+          // Contar polígonos totales (incluyendo MultiPolygon)
+          var totalPolis=0;
+          parsed.features.forEach(function(f){
+            if(f.geometry){
+              if(f.geometry.type==='MultiPolygon')totalPolis+=f.geometry.coordinates.length;
+              else if(f.geometry.type==='Polygon')totalPolis+=1;
+            }
+          });
+          detalle=nAreas+' áreas ('+totalPolis+' polígonos en total)';
+        } else if(parsed.type==='Feature'&&parsed.geometry){
+          tipo='Feature';
+          if(parsed.geometry.type==='MultiPolygon'){nAreas=parsed.geometry.coordinates.length;detalle='1 Feature tipo MultiPolygon con '+nAreas+' polígonos internos';}
+          else{nAreas=1;detalle='1 Feature tipo Polygon';}
+        } else if(parsed.type==='MultiPolygon'){
+          tipo='MultiPolygon';nAreas=parsed.coordinates.length;detalle='MultiPolygon con '+nAreas+' polígonos internos';
+        } else if(parsed.type==='Polygon'){
+          tipo='Polygon';nAreas=1;detalle='1 Polygon simple';
+        }
+      } else if(ext==='kml'){
+        var coords=txt.match(/<coordinates>/gi);
+        nAreas=coords?coords.length:0;
+        tipo='KML';detalle=nAreas+' geometrías detectadas en el KML';
+      }
+      if(info){
+        var color=nAreas>=10?'#2ECC71':(nAreas>1?'#F2C94C':'#E74C3C');
+        var msg='📄 '+detalle;
+        if(nAreas<=1){msg+=' ⚠ Solo 1 área — probablemente el archivo perdió las demás en la conversión. Reconvierte el KMZ con mapshaper.org verificando que se vean todas las áreas.';}
+        else if(nAreas<50){msg+=' — el SINAP completo tiene ~131 áreas; si esperabas más, revisa la conversión.';}
+        else{msg+=' ✓ Se ve completo.';}
+        info.innerHTML='<span style="color:'+color+'">'+msg+'</span>';
+      }
+    }catch(err){if(info)info.innerHTML='<span style="color:#E74C3C">No se pudo leer el archivo: '+(err.message||'')+'</span>';}
   };
   reader.readAsText(file);
 }
