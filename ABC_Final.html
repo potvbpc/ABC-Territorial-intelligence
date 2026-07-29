@@ -100,20 +100,9 @@ select.inp option{background:#0E1E2E}
     document.head.appendChild(link);
   }catch(e){console.warn("manifest:",e);}
 
-  // Service worker mínimo (cache-first ligero) para habilitar instalación offline básica
-  if("serviceWorker" in navigator){
-    try{
-      var swCode="self.addEventListener('install',function(e){self.skipWaiting();});"
-        +"self.addEventListener('activate',function(e){e.waitUntil(self.clients.claim());});"
-        +"self.addEventListener('fetch',function(e){"
-        +"  if(e.request.method!=='GET')return;"
-        +"  e.respondWith(fetch(e.request).catch(function(){return caches.match(e.request);}));"
-        +"});";
-      var swBlob=new Blob([swCode],{type:"text/javascript"});
-      var swUrl=URL.createObjectURL(swBlob);
-      navigator.serviceWorker.register(swUrl).catch(function(err){console.warn("SW:",err);});
-    }catch(e){console.warn("SW register:",e);}
-  }
+  // Nota: el service worker se omite porque no puede registrarse desde un
+  // Blob URL (restricción de los navegadores) y la app es un solo archivo.
+  // La PWA sigue siendo instalable mediante el manifest, que es lo esencial.
 
   // Capturar el evento de instalacion para mostrar boton propio
   window._deferredInstallPrompt=null;
@@ -147,7 +136,7 @@ function instalarApp(){
 }
 </script>
 </head>
-<!-- VERSION-DEPLOY: VF64 — Herramienta de diagnostico de capas (diagnosticarCapas en consola) -->
+<!-- VERSION-DEPLOY: VF65 — Diagnostico de punto vs poligonos SINAP (deteccion de inversion de coordenadas) -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -693,6 +682,63 @@ function rMarketplace(){
 // ═══════════════════════════════════════════════════════════
 // DIAGNÓSTICO DE CAPAS (VF64) — ejecutar en consola: diagnosticarCapas()
 // ═══════════════════════════════════════════════════════════
+async function diagnosticarPunto(lat,lng){
+  // Diagnóstico: por qué un punto no detecta afectación
+  // Uso: diagnosticarPunto(18.56612, -68.42241)
+  console.log('%c=== DIAGNÓSTICO DE PUNTO ('+lat+', '+lng+') ===','font-weight:bold;font-size:14px;color:#1565C0');
+  if(typeof turf==='undefined'){console.error('Turf no disponible');return;}
+  var pt=turf.point([lng,lat]);
+
+  // Cargar la capa ambiental (SINAP)
+  var capas=await loadGeoLayersAmbientales();
+  console.log('Capas ambientales:',capas.length);
+  capas.forEach(function(capa){
+    if(!capa.features||!capa.features.features){console.log('  Capa',capa.name,'sin features');return;}
+    var feats=capa.features.features;
+    console.log('%c\nCapa: '+capa.name+' ('+feats.length+' polígonos)','font-weight:bold;color:#2ECC71');
+    // Analizar el rango de coordenadas del primer polígono
+    var primeraGeom=feats[0]&&feats[0].geometry;
+    if(primeraGeom){
+      var muestra=primeraGeom.coordinates;
+      while(Array.isArray(muestra)&&Array.isArray(muestra[0]))muestra=muestra[0];
+      console.log('  Primera coordenada del primer polígono:',muestra,'(así viene en la BD)');
+      console.log('  → Interpretación: primer valor='+muestra[0]+', segundo valor='+muestra[1]);
+      if(muestra[0]>0&&muestra[0]<25){
+        console.log('  %c⚠ POSIBLE INVERSIÓN: el primer valor ('+muestra[0]+') parece una LATITUD, debería ser longitud negativa','color:#E74C3C;font-weight:bold');
+      }
+    }
+    // Contar cuántos polígonos contienen el punto (con y sin corrección)
+    var dentroNormal=0, dentroInvertido=0, minDist=Infinity;
+    feats.forEach(function(f){
+      if(!f.geometry)return;
+      try{
+        var poly=geomToTurfPoly(f.geometry);
+        if(poly&&turf.booleanPointInPolygon(pt,poly))dentroNormal++;
+        // Probar con el punto invertido
+        var ptInv=turf.point([lat,lng]);
+        if(poly&&turf.booleanPointInPolygon(ptInv,poly))dentroInvertido++;
+        // Distancia al polígono
+        try{
+          var centro=turf.centroid(poly);
+          var d=turf.distance(pt,centro);
+          if(d<minDist)minDist=d;
+        }catch(e){}
+      }catch(e){}
+    });
+    console.log('  Polígonos que contienen tu punto (normal):',dentroNormal);
+    console.log('  Polígonos que contienen tu punto (invertido):',dentroInvertido);
+    console.log('  Distancia al polígono más cercano:',minDist.toFixed(2),'km');
+    if(dentroNormal===0&&dentroInvertido>0){
+      console.log('  %c⚠ El punto SÍ cae dentro si se invierten las coordenadas → problema de orden lat/lng','color:#E74C3C;font-weight:bold');
+    } else if(dentroNormal>0){
+      console.log('  %c✓ El punto cae dentro correctamente','color:#2ECC71;font-weight:bold');
+    } else {
+      console.log('  %cEl punto no cae en ningún polígono de esta capa (ni normal ni invertido)','color:#F2C94C');
+    }
+  });
+  console.log('%c\n=== FIN ===','font-weight:bold;color:#1565C0');
+}
+
 async function diagnosticarCapas(){
   console.log('%c=== DIAGNÓSTICO DE CAPAS GEOGRÁFICAS ===','font-weight:bold;font-size:14px;color:#1565C0');
   if(typeof SUPA==='undefined'){console.error('SUPA no disponible');return;}
