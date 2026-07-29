@@ -136,7 +136,7 @@ function instalarApp(){
 }
 </script>
 </head>
-<!-- VERSION-DEPLOY: VF72 — Diagnostico: identificar si la capa en uso es la nueva SINAP o la vieja en cache -->
+<!-- VERSION-DEPLOY: VF73 — Diagnostico profundo de estructura del geojson de las zonas SINAP -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -847,10 +847,36 @@ async function _pcAnalizar(){
         });
         var _rz=await loadRestrictionZones(PC_RESULTADO_PROV);
         console.log('%c[DIAGNÓSTICO] Zonas de restricción en uso:','font-weight:bold;color:#1565C0');
+        var ptDiag=turf.point([lng,lat]);
         (_rz||[]).forEach(function(z){
           var g=z.geojson;
-          var nf=(g&&g.type==='FeatureCollection'&&g.features)?g.features.length:(g?1:0);
-          console.log('   - "'+z.name+'" | active:'+z.active+' | polígonos:'+nf);
+          if(!g){console.log('   - "'+z.name+'" SIN geojson');return;}
+          // Estructura real
+          var tipo=g.type||'(sin type)';
+          var nf=0, subPolis=0;
+          if(g.type==='FeatureCollection'&&g.features){
+            nf=g.features.length;
+            g.features.forEach(function(f){if(f.geometry&&f.geometry.type==='MultiPolygon')subPolis+=f.geometry.coordinates.length;else if(f.geometry)subPolis+=1;});
+          } else if(g.type==='Feature'&&g.geometry){
+            nf=1; subPolis=(g.geometry.type==='MultiPolygon')?g.geometry.coordinates.length:1;
+          } else if(g.type==='MultiPolygon'&&g.coordinates){
+            nf=1; subPolis=g.coordinates.length;
+          } else if(g.coordinates){
+            nf=1; subPolis=1;
+          }
+          console.log('   - "'+z.name+'" | tipo geojson:'+tipo+' | features:'+nf+' | polígonos individuales:'+subPolis);
+          // Probar el punto contra esta zona directamente
+          var dentro=false;
+          try{
+            if(g.type==='FeatureCollection'&&g.features){
+              g.features.forEach(function(f){if(f.geometry){var p=geomToTurfPoly(f.geometry);if(p&&turf.booleanPointInPolygon(ptDiag,p))dentro=true;}});
+            } else {
+              var geom=(g.type==='Feature')?g.geometry:g;
+              var p=geomToTurfPoly(geom);
+              if(p&&turf.booleanPointInPolygon(ptDiag,p))dentro=true;
+            }
+          }catch(e){console.warn('     error probando zona:',e);}
+          console.log('%c     ¿El punto cae dentro de esta zona? '+(dentro?'SÍ ✓':'NO'),(dentro?'color:#2ECC71':'color:#8FA5BE')+';font-weight:bold');
         });
       }catch(eD){console.warn('diag capas:',eD);}
       var afect=await detectarAfectacion(miniPoligono, PC_RESULTADO_PROV);
