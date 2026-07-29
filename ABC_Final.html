@@ -136,7 +136,7 @@ function instalarApp(){
 }
 </script>
 </head>
-<!-- VERSION-DEPLOY: VF77 — Planes configurables desde admin (CRUD) + portal publico lee de Supabase — cierra Bloque 3 -->
+<!-- VERSION-DEPLOY: VF78 — Informe muestra el nombre especifico de cada area protegida (del feature, no de la zona) -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -837,6 +837,23 @@ async function _pcAnalizar(){
           [lng-d,lat-d],[lng+d,lat-d],[lng+d,lat+d],[lng-d,lat+d],[lng-d,lat-d]
         ]]
       };
+      // DIAGNÓSTICO TEMPORAL (VF78): ver qué nombres traen las áreas
+      try{
+        var _rzDiag=await loadRestrictionZones(PC_RESULTADO_PROV);
+        (_rzDiag||[]).forEach(function(z){
+          if(!z.geojson||z.geojson.type!=='FeatureCollection'||!z.geojson.features)return;
+          var muestras=z.geojson.features.slice(0,5).map(function(f){
+            var p=f.properties||{};
+            var nom=p.NOMBRE||p.Nombre||p.nombre||p.NAME||p.Name||p.name||p.AREA_NOMB||p.NOM_AP||p.toponimia||'(sin nombre)';
+            return nom;
+          });
+          console.log('%c[DIAGNÓSTICO nombres] Zona "'+z.name+'" — primeras áreas:','font-weight:bold;color:#1565C0',muestras);
+          // Mostrar TODAS las claves de propiedades del primer feature (para ver qué campos hay)
+          if(z.geojson.features[0]&&z.geojson.features[0].properties){
+            console.log('   Campos de propiedades disponibles:',Object.keys(z.geojson.features[0].properties));
+          }
+        });
+      }catch(eN){console.warn('diag nombres:',eN);}
       var afect=await detectarAfectacion(miniPoligono, PC_RESULTADO_PROV);
       // Verificación de respaldo: probar el punto directamente contra cada
       // polígono de las capas ambientales (más robusto que el mini-polígono)
@@ -4677,12 +4694,18 @@ async function detectarAfectacion(landGeojson, province){
     (zones||[]).forEach(function(z){
       if(!z.geojson)return;
       var g=z.geojson;
-      // Caso 1: FeatureCollection
+      // Caso 1: FeatureCollection — tomar el nombre de CADA feature individual
       if(g.type==='FeatureCollection'&&g.features){
         g.features.forEach(function(f){
           if(!f.geometry)return;
           var zp=geomToTurfPoly(f.geometry);
-          if(zp)probarZona(zp,z.name,z.zone_type,z.severity,z.source);
+          if(!zp)return;
+          // Nombre específico del área (de las propiedades del feature)
+          var props=f.properties||{};
+          var nombreFeature=props.NOMBRE||props.Nombre||props.nombre||props.NAME||props.Name||props.name||props.AREA_NOMB||props.NOM_AP||props.nombre_area||props.NOMBRE_AP||props.toponimia||props.TOPONIMIA||props.DESCRIPCIO||props.descripcion||null;
+          // Si el feature tiene su propio nombre, usarlo; si no, el de la zona
+          var nombreFinal=nombreFeature?nombreFeature:z.name;
+          probarZona(zp,nombreFinal,z.zone_type,z.severity,z.source);
         });
       }
       // Caso 2: Feature único
