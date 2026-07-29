@@ -136,7 +136,7 @@ function instalarApp(){
 }
 </script>
 </head>
-<!-- VERSION-DEPLOY: VF67 — Diagnostico automatico del rango de coordenadas de la capa SINAP en cada Pre-Check -->
+<!-- VERSION-DEPLOY: VF68 — Verificacion de respaldo por punto directo + diagnostico de contencion -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -859,8 +859,57 @@ async function _pcAnalizar(){
             console.log('%c   ⚠ Rango inesperado — revisar proyección','color:#F2C94C;font-weight:bold');
           }
         });
+        // Prueba directa: ¿el punto cae en algún polígono? + distancia al más cercano
+        (_capasDiag||[]).forEach(function(capa){
+          if(!capa.features||!capa.features.features)return;
+          var pt2=turf.point([lng,lat]);
+          var dentro=0,minD=Infinity,masCercano='';
+          capa.features.features.forEach(function(f){
+            if(!f.geometry)return;
+            try{
+              var poly=geomToTurfPoly(f.geometry);
+              if(!poly)return;
+              if(turf.booleanPointInPolygon(pt2,poly))dentro++;
+              try{
+                var d=turf.distance(pt2,turf.centroid(poly));
+                if(d<minD){minD=d;masCercano=(f.properties&&(f.properties.NOMBRE||f.properties.nombre||f.properties.name||f.properties.NOM_AP))||'?';}
+              }catch(e){}
+            }catch(e){}
+          });
+          console.log('%c[DIAGNÓSTICO] Punto vs polígonos de "'+capa.name+'":','font-weight:bold;color:#1565C0');
+          console.log('   Polígonos que CONTIENEN el punto:',dentro);
+          console.log('   Área más cercana: "'+masCercano+'" a '+(minD===Infinity?'N/A':minD.toFixed(2)+' km'));
+          if(dentro>0){
+            console.log('%c   ✓ El punto SÍ está dentro de un área — si el Pre-Check dice "sin alertas", el bug está en el mini-polígono','color:#2ECC71;font-weight:bold');
+          } else if(minD<2){
+            console.log('%c   ⚠ El punto está MUY cerca ('+minD.toFixed(2)+' km) pero fuera. Puede ser precisión del borde.','color:#F2C94C;font-weight:bold');
+          } else {
+            console.log('%c   El punto está a '+minD.toFixed(1)+' km del área más cercana — realmente fuera de áreas protegidas','color:#8FA5BE');
+          }
+        });
       }catch(eDiag){console.warn('diag auto:',eDiag);}
       var afect=await detectarAfectacion(miniPoligono, PC_RESULTADO_PROV);
+      // Si el punto cae dentro de un polígono directamente pero detectarAfectacion
+      // no lo marcó (por el mini-polígono), hacer una verificación de respaldo con el punto
+      if((!afect||!afect.afectado)&&typeof turf!=='undefined'){
+        try{
+          var ptCheck=turf.point([lng,lat]);
+          (_capasDiag||[]).forEach(function(capa){
+            if(afectado||!capa.features||!capa.features.features)return;
+            capa.features.features.forEach(function(f){
+              if(afectado||!f.geometry)return;
+              try{
+                var poly=geomToTurfPoly(f.geometry);
+                if(poly&&turf.booleanPointInPolygon(ptCheck,poly)){
+                  afectado=true;
+                  afectNombre=(f.properties&&(f.properties.NOMBRE||f.properties.nombre||f.properties.name||f.properties.NOM_AP))||capa.name||'área protegida';
+                }
+              }catch(e){}
+            });
+          });
+          if(afectado)console.log('%c[Pre-Check] Afectación detectada por verificación de punto directo: '+afectNombre,'color:#2ECC71;font-weight:bold');
+        }catch(e){}
+      }
       console.log('[Pre-Check] Resultado afectación:',afect);
       if(afect&&afect.afectado&&afect.conflictos&&afect.conflictos.length>0){
         afectado=true;
