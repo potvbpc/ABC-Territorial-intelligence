@@ -136,7 +136,7 @@ function instalarApp(){
 }
 </script>
 </head>
-<!-- VERSION-DEPLOY: VF69 — Diagnostico lista las areas del SINAP cargadas para verificar cobertura -->
+<!-- VERSION-DEPLOY: VF70 — Pre-Check limpio con verificacion de respaldo por punto (motor confirmado OK; falta cargar SINAP oficial) -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -837,71 +837,14 @@ async function _pcAnalizar(){
           [lng-d,lat-d],[lng+d,lat-d],[lng+d,lat+d],[lng-d,lat+d],[lng-d,lat-d]
         ]]
       };
-      console.log('[Pre-Check] Analizando punto:',lat.toFixed(5),lng.toFixed(5),'en',PC_RESULTADO_PROV);
-      // DIAGNÓSTICO AUTOMÁTICO (VF67): analiza el rango de coordenadas de la capa SINAP
-      try{
-        var _capasDiag=await loadGeoLayersAmbientales();
-        (_capasDiag||[]).forEach(function(capa){
-          if(!capa.features||!capa.features.features)return;
-          var minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
-          function esc(c){if(!Array.isArray(c))return;if(typeof c[0]==='number'&&typeof c[1]==='number'){if(c[0]<minX)minX=c[0];if(c[0]>maxX)maxX=c[0];if(c[1]<minY)minY=c[1];if(c[1]>maxY)maxY=c[1];return;}c.forEach(esc);}
-          capa.features.features.forEach(function(f){if(f.geometry&&f.geometry.coordinates)esc(f.geometry.coordinates);});
-          console.log('%c[DIAGNÓSTICO] Capa "'+capa.name+'" — rango de coordenadas:','font-weight:bold;color:#1565C0');
-          console.log('   Primer valor (debería ser LONGITUD -72 a -68): de '+minX.toFixed(4)+' a '+maxX.toFixed(4));
-          console.log('   Segundo valor (debería ser LATITUD 17 a 20): de '+minY.toFixed(4)+' a '+maxY.toFixed(4));
-          if(minX>=15&&maxX<=21&&minY<=-67&&minY>=-73){
-            console.log('%c   ⚠⚠ INVERSIÓN DETECTADA: las coordenadas están [lat,lng] en vez de [lng,lat]','color:#E74C3C;font-weight:bold;font-size:13px');
-          } else if(minX>=-73&&maxX<=-67&&minY>=15&&maxY<=21){
-            console.log('%c   ✓ Coordenadas en orden correcto (el problema sería otro)','color:#2ECC71;font-weight:bold');
-          } else if(Math.abs(minX)>1000||Math.abs(minY)>1000){
-            console.log('%c   ⚠ Coordenadas en UTM (números grandes) — necesita reproyección a EPSG:4326','color:#F2C94C;font-weight:bold');
-          } else {
-            console.log('%c   ⚠ Rango inesperado — revisar proyección','color:#F2C94C;font-weight:bold');
-          }
-        });
-        // Prueba directa: ¿el punto cae en algún polígono? + distancia al más cercano
-        (_capasDiag||[]).forEach(function(capa){
-          if(!capa.features||!capa.features.features)return;
-          var pt2=turf.point([lng,lat]);
-          var dentro=0,minD=Infinity,masCercano='';
-          capa.features.features.forEach(function(f){
-            if(!f.geometry)return;
-            try{
-              var poly=geomToTurfPoly(f.geometry);
-              if(!poly)return;
-              if(turf.booleanPointInPolygon(pt2,poly))dentro++;
-              try{
-                var d=turf.distance(pt2,turf.centroid(poly));
-                if(d<minD){minD=d;masCercano=(f.properties&&(f.properties.NOMBRE||f.properties.nombre||f.properties.name||f.properties.NOM_AP))||'?';}
-              }catch(e){}
-            }catch(e){}
-          });
-          console.log('%c[DIAGNÓSTICO] Punto vs polígonos de "'+capa.name+'":','font-weight:bold;color:#1565C0');
-          console.log('   Polígonos que CONTIENEN el punto:',dentro);
-          console.log('   Área más cercana: "'+masCercano+'" a '+(minD===Infinity?'N/A':minD.toFixed(2)+' km'));
-          // Listar TODAS las áreas cargadas para ver qué contiene realmente la capa
-          var nombres=capa.features.features.map(function(f){var p=f.properties||{};return p.NOMBRE||p.nombre||p.name||p.NOM_AP||p.AREA_NOMB||p.toponimia||'(sin nombre)';});
-          console.log('%c   Las '+nombres.length+' áreas cargadas en esta capa:','font-weight:bold;color:#F2C94C');
-          console.log('   '+nombres.sort().join(', '));
-          // ¿Hay alguna que mencione Bávaro, Este, Cotubanamá, Del Este?
-          var este=nombres.filter(function(n){var x=n.toUpperCase();return x.indexOf('BAVARO')>=0||x.indexOf('BÁVARO')>=0||x.indexOf('ESTE')>=0||x.indexOf('COTUBANAMA')>=0||x.indexOf('SALADO')>=0||x.indexOf('MACAO')>=0;});
-          console.log('%c   Áreas de la región Este detectadas: '+(este.length>0?este.join(', '):'NINGUNA — la capa NO cubre la región Este/Bávaro'),(este.length>0?'color:#2ECC71':'color:#E74C3C')+';font-weight:bold');
-          if(dentro>0){
-            console.log('%c   ✓ El punto SÍ está dentro de un área — si el Pre-Check dice "sin alertas", el bug está en el mini-polígono','color:#2ECC71;font-weight:bold');
-          } else if(minD<2){
-            console.log('%c   ⚠ El punto está MUY cerca ('+minD.toFixed(2)+' km) pero fuera. Puede ser precisión del borde.','color:#F2C94C;font-weight:bold');
-          } else {
-            console.log('%c   El punto está a '+minD.toFixed(1)+' km del área más cercana — realmente fuera de áreas protegidas','color:#8FA5BE');
-          }
-        });
-      }catch(eDiag){console.warn('diag auto:',eDiag);}
       var afect=await detectarAfectacion(miniPoligono, PC_RESULTADO_PROV);
-      // Si el punto cae dentro de un polígono directamente pero detectarAfectacion
-      // no lo marcó (por el mini-polígono), hacer una verificación de respaldo con el punto
+      // Verificación de respaldo: probar el punto directamente contra cada
+      // polígono de las capas ambientales (más robusto que el mini-polígono)
       if((!afect||!afect.afectado)&&typeof turf!=='undefined'){
         try{
           var ptCheck=turf.point([lng,lat]);
-          (_capasDiag||[]).forEach(function(capa){
+          var _capasBk=await loadGeoLayersAmbientales();
+          (_capasBk||[]).forEach(function(capa){
             if(afectado||!capa.features||!capa.features.features)return;
             capa.features.features.forEach(function(f){
               if(afectado||!f.geometry)return;
@@ -914,7 +857,6 @@ async function _pcAnalizar(){
               }catch(e){}
             });
           });
-          if(afectado)console.log('%c[Pre-Check] Afectación detectada por verificación de punto directo: '+afectNombre,'color:#2ECC71;font-weight:bold');
         }catch(e){}
       }
       console.log('[Pre-Check] Resultado afectación:',afect);
