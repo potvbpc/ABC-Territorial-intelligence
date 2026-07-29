@@ -136,7 +136,7 @@ function instalarApp(){
 }
 </script>
 </head>
-<!-- VERSION-DEPLOY: VF78 — Informe muestra el nombre especifico de cada area protegida (del feature, no de la zona) -->
+<!-- VERSION-DEPLOY: VF79 — Fix: al subir nuevo terreno el mapa empieza limpio (no muestra el lote anterior) -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -1917,6 +1917,12 @@ async function submitRegister(){
    PANTALLA 2 — SUBIR TERRENO
    ══════════════════════════════════════════════════════ */
 function rUpload(){
+  // VF79: limpiar TODO el estado del terreno anterior para empezar en limpio
+  window._polyPoints=[];
+  if(typeof UP_POINTS!=='undefined')UP_POINTS=[];
+  if(typeof DRAWN!=='undefined')delete DRAWN["up-map"];
+  window._loadedGeoJSON=null;
+  window._loadedArea=null;
   document.getElementById("content").innerHTML=`
 <div style="display:flex;flex-direction:column;gap:16px">
   <div>
