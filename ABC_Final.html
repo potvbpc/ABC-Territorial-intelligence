@@ -136,7 +136,7 @@ function instalarApp(){
 }
 </script>
 </head>
-<!-- VERSION-DEPLOY: VF71 — Fix boton eliminar capa: diagnostico de permisos RLS + confirmacion clara -->
+<!-- VERSION-DEPLOY: VF72 — Diagnostico: identificar si la capa en uso es la nueva SINAP o la vieja en cache -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -837,6 +837,22 @@ async function _pcAnalizar(){
           [lng-d,lat-d],[lng+d,lat-d],[lng+d,lat+d],[lng-d,lat+d],[lng-d,lat-d]
         ]]
       };
+      // DIAGNÓSTICO TEMPORAL (VF72): mostrar qué capas está usando
+      try{
+        var _dc=await loadGeoLayersAmbientales();
+        console.log('%c[DIAGNÓSTICO] Capas ambientales en uso:','font-weight:bold;color:#1565C0');
+        (_dc||[]).forEach(function(c){
+          var nf=(c.features&&c.features.features)?c.features.features.length:0;
+          console.log('   - "'+c.name+'" | feature_count:'+c.feature_count+' | polígonos reales:'+nf+' | dimension:'+c.dimension+' | measure_method:'+c.measure_method);
+        });
+        var _rz=await loadRestrictionZones(PC_RESULTADO_PROV);
+        console.log('%c[DIAGNÓSTICO] Zonas de restricción en uso:','font-weight:bold;color:#1565C0');
+        (_rz||[]).forEach(function(z){
+          var g=z.geojson;
+          var nf=(g&&g.type==='FeatureCollection'&&g.features)?g.features.length:(g?1:0);
+          console.log('   - "'+z.name+'" | active:'+z.active+' | polígonos:'+nf);
+        });
+      }catch(eD){console.warn('diag capas:',eD);}
       var afect=await detectarAfectacion(miniPoligono, PC_RESULTADO_PROV);
       // Verificación de respaldo: probar el punto directamente contra cada
       // polígono de las capas ambientales (más robusto que el mini-polígono)
