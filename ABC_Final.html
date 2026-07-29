@@ -136,7 +136,7 @@ function instalarApp(){
 }
 </script>
 </head>
-<!-- VERSION-DEPLOY: VF70 — Pre-Check limpio con verificacion de respaldo por punto (motor confirmado OK; falta cargar SINAP oficial) -->
+<!-- VERSION-DEPLOY: VF71 — Fix boton eliminar capa: diagnostico de permisos RLS + confirmacion clara -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -5415,13 +5415,26 @@ function parseKMLtoFC(txt){
 }
 
 async function eliminarGeoLayer(id){
-  if(!confirm('¿Eliminar esta capa geográfica?'))return;
+  if(!confirm('¿Eliminar esta capa geográfica? Esta acción no se puede deshacer.'))return;
+  console.log('[Eliminar capa] Intentando eliminar id:',id);
   try{
-    var del=await SUPA.from('geo_layers').delete().eq('id',id);
+    if(typeof SUPA==='undefined'){alert('Sin conexión al servidor.');return;}
+    // El .select() al final devuelve las filas realmente eliminadas
+    var del=await SUPA.from('geo_layers').delete().eq('id',id).select();
+    console.log('[Eliminar capa] Respuesta:',del);
     if(del.error)throw del.error;
+    if(!del.data||del.data.length===0){
+      // No hubo error pero no se borró nada → problema de permisos (RLS)
+      alert('La capa no se eliminó. Es probable que falten permisos de eliminación (RLS) en la tabla geo_layers de Supabase.\n\nSolución: en Supabase → SQL Editor, ejecuta la política de DELETE que te indico, o elimínala manualmente desde Table Editor → geo_layers.');
+      return;
+    }
     GEO_LAYERS_CACHE=null;GEO_AMBIENTAL_CACHE=null;GEO_PRECIOS_CACHE=null;
+    alert('✓ Capa eliminada correctamente.');
     cargarListaGeoLayers();
-  }catch(e){alert('No se pudo eliminar: '+(e.message||''));}
+  }catch(e){
+    console.error('[Eliminar capa] Error:',e);
+    alert('No se pudo eliminar: '+(e.message||'error desconocido')+'\n\nSi el mensaje menciona permisos o RLS, la tabla geo_layers necesita una política de DELETE en Supabase.');
+  }
 }
 
 async function rZones(){
