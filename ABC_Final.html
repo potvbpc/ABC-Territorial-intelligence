@@ -136,7 +136,7 @@ function instalarApp(){
 }
 </script>
 </head>
-<!-- VERSION-DEPLOY: VF76 — CRM de leads: ver, filtrar, cambiar estado y contactar prospectos del Pre-Check -->
+<!-- VERSION-DEPLOY: VF77 — Planes configurables desde admin (CRUD) + portal publico lee de Supabase — cierra Bloque 3 -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -1022,28 +1022,32 @@ function rPublic(){
   // Plans
   var plansRow=document.createElement('div');
   plansRow.style.cssText='display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:14px';
-  [['Profesional','PROPIETARIO','US$ 199','Diagnostico completo + score + sugerencias','#42A5F5'],
-   ['Premium','PROPIETARIO','US$ 950','Ficha de proyecto + dashboard + modelo','#F2C94C'],
-   ['Validado ABC','PROPIETARIO','US$ 2,500','Validacion ABC + publicacion al marketplace','#2ECC71']
-  ].forEach(function(p){
-    var d=document.createElement('div');
-    d.style.cssText='background:#0E1E2E;border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:18px';
-    d.innerHTML='<div style="font-size:8px;color:'+p[4]+';font-weight:700;letter-spacing:.12em;text-transform:uppercase;margin-bottom:6px">'+p[1]+'</div>'
-      +'<div style="font-family:Montserrat,sans-serif;font-size:16px;font-weight:900;color:#E8EDF3;margin-bottom:4px">'+p[0]+'</div>'
-      +'<div style="font-size:22px;font-weight:800;color:'+p[4]+';margin-bottom:8px">'+p[2]+'</div>'
-      +'<div style="font-size:11px;color:#8FA5BE;margin-bottom:14px;line-height:1.5">'+p[3]+'</div>';
-    var pb=document.createElement('button');
-    pb.style.cssText='width:100%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);color:#E8EDF3;padding:9px;border-radius:8px;font-size:12px;cursor:pointer;margin-bottom:6px';
-    pb.textContent='Pagar con tarjeta';
-    pb.onclick=function(){window._regRole='propietario';goTo('register');};
-    var pp=document.createElement('button');
-    pp.style.cssText='width:100%;background:#F2C94C;color:#0B1D33;padding:9px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;border:none';
-    pp.textContent='PayPal';
-    pp.onclick=function(){window._regRole='propietario';goTo('register');};
-    d.appendChild(pb);d.appendChild(pp);
-    plansRow.appendChild(d);
-  });
   con.appendChild(plansRow);
+  // Cargar planes desde Supabase (con respaldo a los por defecto)
+  (async function(){
+    var planes=await loadPlans();
+    plansRow.innerHTML='';
+    planes.forEach(function(p){
+      var color=p.color||'#42A5F5';
+      var d=document.createElement('div');
+      d.style.cssText='background:#0E1E2E;border:'+(p.destacado?'2px solid rgba(21,101,192,.5)':'1px solid rgba(255,255,255,.08)')+';border-radius:12px;padding:18px;position:relative';
+      d.innerHTML=(p.destacado?'<div style="position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,#1565C0,#17C3B2)"></div>':'')
+        +'<div style="font-size:8px;color:'+color+';font-weight:700;letter-spacing:.12em;text-transform:uppercase;margin-bottom:6px">'+(p.audiencia||'PROPIETARIO')+'</div>'
+        +'<div style="font-family:Montserrat,sans-serif;font-size:16px;font-weight:900;color:#E8EDF3;margin-bottom:4px">'+p.nombre+'</div>'
+        +'<div style="font-size:22px;font-weight:800;color:'+color+';margin-bottom:8px">'+p.precio+'</div>'
+        +'<div style="font-size:11px;color:#8FA5BE;margin-bottom:14px;line-height:1.5">'+(p.descripcion||'')+'</div>';
+      var pb=document.createElement('button');
+      pb.style.cssText='width:100%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);color:#E8EDF3;padding:9px;border-radius:8px;font-size:12px;cursor:pointer;margin-bottom:6px';
+      pb.textContent='Pagar con tarjeta';
+      pb.onclick=function(){window._regRole='propietario';goTo('register');};
+      var pp=document.createElement('button');
+      pp.style.cssText='width:100%;background:#F2C94C;color:#0B1D33;padding:9px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;border:none';
+      pp.textContent='PayPal';
+      pp.onclick=function(){window._regRole='propietario';goTo('register');};
+      d.appendChild(pb);d.appendChild(pp);
+      plansRow.appendChild(d);
+    });
+  })();
 
   // Footer
   var footer=document.createElement('div');
@@ -1316,7 +1320,122 @@ async function manageOppStatus(id,currentStatus){
 
 
 
-function rPricing(){
+var PLANS_CACHE=null;
+async function loadPlans(){
+  // Carga los planes desde Supabase (con caché)
+  if(PLANS_CACHE)return PLANS_CACHE;
+  try{
+    if(typeof SUPA==='undefined')return _planesDefault();
+    var r=await SUPA.from('plans').select('*').eq('activo',true).order('orden',{ascending:true});
+    if(r.error||!r.data||r.data.length===0)return _planesDefault();
+    PLANS_CACHE=r.data;
+    return PLANS_CACHE;
+  }catch(e){return _planesDefault();}
+}
+function _planesDefault(){
+  // Respaldo si la tabla no existe todavía
+  return [
+    {id:'d1',nombre:'Profesional',audiencia:'PROPIETARIO',precio:'US$ 199',descripcion:'Diagnóstico completo + score + sugerencias',color:'#42A5F5',destacado:false,orden:1},
+    {id:'d2',nombre:'Premium',audiencia:'PROPIETARIO',precio:'US$ 950',descripcion:'Ficha de proyecto + dashboard + modelo',color:'#F2C94C',destacado:true,orden:2},
+    {id:'d3',nombre:'Validado ABC',audiencia:'PROPIETARIO',precio:'US$ 2,500',descripcion:'Validación ABC + publicación al marketplace',color:'#2ECC71',destacado:false,orden:3}
+  ];
+}
+
+async function rPricing(){
+  var con=document.getElementById('content');
+  con.innerHTML='<div style="text-align:center;padding:40px;color:'+C.tm+'">Cargando planes...</div>';
+  PLANS_CACHE=null; // forzar recarga
+  var planes=await loadPlans();
+  var esDefault=planes.length>0&&String(planes[0].id).indexOf('d')===0;
+
+  var html='<div style="background:'+C.card+';border:1px solid '+C.bo+';border-radius:13px;padding:20px">';
+  html+='<div class="mn" style="font-size:17px;font-weight:800;color:'+C.tx+';margin-bottom:5px">Planes, precios y monetización</div>';
+  html+='<p style="color:'+C.tm+';font-size:12px;margin-bottom:6px">Edita los planes directamente aquí. Los cambios se reflejan en el portal público.</p>';
+  if(esDefault)html+='<div style="background:rgba(242,201,76,.1);border:1px solid rgba(242,201,76,.3);border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:11px;color:#F2C94C">⚠ Mostrando planes por defecto. Para poder editarlos, ejecuta <strong>ABC_Supabase_plans.sql</strong> en Supabase.</div>';
+  html+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><div style="font-size:10px;color:'+C.bll+';font-weight:700;text-transform:uppercase;letter-spacing:.1em">Planes para propietarios</div>';
+  if(!esDefault)html+='<button onclick="_nuevoPlan()" style="background:rgba(46,204,113,.15);border:1px solid rgba(46,204,113,.35);color:#2ECC71;padding:6px 14px;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer">+ Nuevo plan</button>';
+  html+='</div>';
+
+  html+='<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:22px" id="plans-grid">';
+  planes.forEach(function(p){
+    html+=_planCard(p,esDefault);
+  });
+  html+='</div>';
+
+  // Sección informativa de inversionistas y comisión (se mantiene como referencia)
+  html+='<div style="font-size:10px;color:'+C.gr+';font-weight:700;text-transform:uppercase;letter-spacing:.1em;margin-bottom:12px">Inversionistas (referencia)</div>';
+  html+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:18px">';
+  [['Profesional','US$ 149 / mes','Fichas completas + filtros avanzados'],['Deal Access','US$ 750 / mes','Solicitudes directas + NDA + reuniones vía ABC']].forEach(function(x){
+    html+='<div style="background:'+C.c2+';border-radius:11px;padding:16px;border:1px solid rgba(255,255,255,.09)"><div style="font-size:8px;color:'+C.gr+';font-weight:700;text-transform:uppercase;letter-spacing:.1em;margin-bottom:5px">Inversionista</div><div class="mn" style="font-size:14px;font-weight:800;color:'+C.tx+';margin-bottom:3px">'+x[0]+'</div><div class="mn" style="font-size:19px;font-weight:900;color:'+C.go+';margin-bottom:10px">'+x[1]+'</div><p style="font-size:11px;color:'+C.tm+';line-height:1.55">'+x[2]+'</p></div>';
+  });
+  html+='</div>';
+  html+='<div style="background:rgba(46,204,113,.07);border:1px solid rgba(46,204,113,.22);border-radius:9px;padding:13px 16px"><strong style="color:'+C.gr+';font-size:12px">Comisión ABC:</strong><span style="font-size:11px;color:'+C.tm+'"> 3% del valor de la operación cerrada. 5% si ABC participa activamente en estructuración, negociación y cierre.</span></div>';
+  html+='</div>';
+  con.innerHTML=html;
+}
+
+function _planCard(p,esDefault){
+  var hi=p.destacado;
+  return '<div style="background:'+C.c2+';border-radius:11px;padding:16px;border:'+(hi?'2px solid rgba(21,101,192,.5)':'1px solid rgba(255,255,255,.09)')+';position:relative;overflow:hidden" id="plan-card-'+p.id+'">'
+    +(hi?'<div style="position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,#1565C0,#17C3B2)"></div>':'')
+    +'<div style="font-size:8px;color:'+(p.color||C.bll)+';font-weight:700;text-transform:uppercase;letter-spacing:.1em;margin-bottom:5px">'+(p.audiencia||'Propietario')+'</div>'
+    +'<div class="mn" style="font-size:14px;font-weight:800;color:'+C.tx+';margin-bottom:3px">'+p.nombre+'</div>'
+    +'<div class="mn" style="font-size:19px;font-weight:900;color:'+C.go+';margin-bottom:10px">'+p.precio+'</div>'
+    +'<p style="font-size:11px;color:'+C.tm+';line-height:1.55;margin-bottom:12px">'+(p.descripcion||'')+'</p>'
+    +(esDefault?'':'<button onclick="_editarPlan(\''+p.id+'\')" style="width:100%;padding:7px 0;border-radius:8px;font-size:11px;font-weight:700;background:rgba(21,101,192,.15);border:1px solid rgba(21,101,192,.4);color:'+C.bll+';cursor:pointer;margin-bottom:6px">✏ Editar</button>'
+    +'<button onclick="_eliminarPlan(\''+p.id+'\')" style="width:100%;padding:6px 0;border-radius:8px;font-size:10px;font-weight:600;background:transparent;border:1px solid rgba(231,76,60,.3);color:#E74C3C;cursor:pointer">Eliminar</button>')
+    +'</div>';
+}
+
+function _editarPlan(id){
+  var p=PLANS_CACHE.find(function(x){return String(x.id)===String(id);});
+  if(!p)return;
+  var card=document.getElementById('plan-card-'+id);
+  if(!card)return;
+  card.innerHTML='<div style="font-size:11px;font-weight:700;color:'+C.tx+';margin-bottom:10px">Editar plan</div>'
+    +'<input id="ep-nombre-'+id+'" value="'+(p.nombre||'').replace(/"/g,'&quot;')+'" placeholder="Nombre" style="width:100%;background:rgba(255,255,255,.06);border:1px solid '+C.bd+';color:'+C.tx+';padding:8px 10px;border-radius:7px;font-size:12px;margin-bottom:6px;box-sizing:border-box"/>'
+    +'<input id="ep-precio-'+id+'" value="'+(p.precio||'').replace(/"/g,'&quot;')+'" placeholder="Precio (ej: US$ 199)" style="width:100%;background:rgba(255,255,255,.06);border:1px solid '+C.bd+';color:'+C.tx+';padding:8px 10px;border-radius:7px;font-size:12px;margin-bottom:6px;box-sizing:border-box"/>'
+    +'<textarea id="ep-desc-'+id+'" placeholder="Descripción" style="width:100%;background:rgba(255,255,255,.06);border:1px solid '+C.bd+';color:'+C.tx+';padding:8px 10px;border-radius:7px;font-size:12px;margin-bottom:6px;box-sizing:border-box;min-height:50px;resize:vertical">'+(p.descripcion||'')+'</textarea>'
+    +'<label style="display:flex;align-items:center;gap:6px;font-size:11px;color:'+C.tm+';margin-bottom:10px;cursor:pointer"><input type="checkbox" id="ep-dest-'+id+'"'+(p.destacado?' checked':'')+'/> Plan destacado</label>'
+    +'<button onclick="_guardarPlan(\''+id+'\')" style="width:100%;padding:8px 0;border-radius:8px;font-size:11px;font-weight:700;background:linear-gradient(135deg,#2ECC71,#27AE60);color:white;border:none;cursor:pointer;margin-bottom:6px">Guardar</button>'
+    +'<button onclick="rPricing()" style="width:100%;padding:6px 0;border-radius:8px;font-size:10px;background:transparent;border:1px solid '+C.bd+';color:'+C.tm+';cursor:pointer">Cancelar</button>';
+}
+
+async function _guardarPlan(id){
+  var nombre=document.getElementById('ep-nombre-'+id).value.trim();
+  var precio=document.getElementById('ep-precio-'+id).value.trim();
+  var desc=document.getElementById('ep-desc-'+id).value.trim();
+  var dest=document.getElementById('ep-dest-'+id).checked;
+  if(!nombre||!precio){alert('El nombre y el precio son obligatorios.');return;}
+  try{
+    var r=await SUPA.from('plans').update({nombre:nombre,precio:precio,descripcion:desc,destacado:dest}).eq('id',id);
+    if(r.error)throw r.error;
+    PLANS_CACHE=null;
+    rPricing();
+  }catch(e){alert('No se pudo guardar: '+(e.message||''));}
+}
+
+async function _nuevoPlan(){
+  try{
+    var maxOrden=PLANS_CACHE?Math.max.apply(null,PLANS_CACHE.map(function(p){return p.orden||0;}).concat([0])):0;
+    var r=await SUPA.from('plans').insert({nombre:'Nuevo plan',audiencia:'PROPIETARIO',precio:'US$ 0',descripcion:'Descripción del plan',color:'#42A5F5',destacado:false,orden:maxOrden+1,activo:true});
+    if(r.error)throw r.error;
+    PLANS_CACHE=null;
+    rPricing();
+  }catch(e){alert('No se pudo crear: '+(e.message||''));}
+}
+
+async function _eliminarPlan(id){
+  if(!confirm('¿Eliminar este plan?'))return;
+  try{
+    var r=await SUPA.from('plans').delete().eq('id',id);
+    if(r.error)throw r.error;
+    PLANS_CACHE=null;
+    rPricing();
+  }catch(e){alert('No se pudo eliminar: '+(e.message||''));}
+}
+
+function _rPricingOld(){
   document.getElementById("content").innerHTML=`
 <div style="background:${C.card};border:1px solid ${C.bo};border-radius:13px;padding:20px">
   <div class="mn" style="font-size:17px;font-weight:800;color:${C.tx};margin-bottom:5px">Planes, precios y monetización</div>
