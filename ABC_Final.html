@@ -147,7 +147,7 @@ function instalarApp(){
 }
 </script>
 </head>
-<!-- VERSION-DEPLOY: VF61 — Fix Pre-Check: detecta afectacion cruzando restriction_zones (antes solo veia geo_layers) -->
+<!-- VERSION-DEPLOY: VF62 — Fix definitivo Pre-Check: usa detectarAfectacion (motor del informe) para deteccion consistente -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -733,42 +733,25 @@ async function _pcAnalizar(){
   var btn=document.getElementById('pc-analizar');
   if(btn){btn.textContent='Analizando...';btn.disabled=true;btn.style.opacity='.6';}
 
-  // Análisis de afectación: cruza el punto contra las MISMAS dos fuentes
-  // que usa el informe completo (restriction_zones + geo_layers ambientales).
+  // Análisis de afectación: usa EL MISMO motor del informe completo
+  // (detectarAfectacion), construyendo un pequeño polígono alrededor del
+  // punto marcado. Así la detección es idéntica y consistente.
   var afectado=false, afectNombre='';
   try{
-    if(typeof turf!=='undefined'){
-      var pt=turf.point([PC_PUNTO.lng,PC_PUNTO.lat]);
-      // Helper: probar el punto contra una FeatureCollection o geometría
-      function _pcProbarGeo(g,nombreCapa){
-        if(afectado||!g)return;
-        var feats=(g.type==='FeatureCollection'&&g.features)?g.features:(g.type==='Feature'?[g]:[{type:'Feature',geometry:g,properties:{}}]);
-        feats.forEach(function(f){
-          if(afectado||!f||!f.geometry)return;
-          try{
-            var poly=geomToTurfPoly(f.geometry);
-            if(poly&&turf.booleanPointInPolygon(pt,poly)){
-              afectado=true;
-              afectNombre=(f.properties&&(f.properties.NOMBRE||f.properties.nombre||f.properties.name))||nombreCapa||'área protegida';
-            }
-          }catch(e){}
-        });
-      }
-      // FUENTE 1: restriction_zones (donde suelen estar las áreas protegidas)
-      if(typeof loadRestrictionZones==='function'){
-        var zones=await loadRestrictionZones(PC_RESULTADO_PROV);
-        (zones||[]).forEach(function(z){
-          if(afectado||!z.geojson)return;
-          _pcProbarGeo(z.geojson, z.name||'zona restringida');
-        });
-      }
-      // FUENTE 2: geo_layers ambientales
-      if(!afectado&&typeof loadGeoLayersAmbientales==='function'){
-        var capas=await loadGeoLayersAmbientales();
-        (capas||[]).forEach(function(capa){
-          if(afectado||!capa.features)return;
-          _pcProbarGeo(capa.features, capa.name||'área protegida');
-        });
+    if(typeof turf!=='undefined'&&typeof detectarAfectacion==='function'){
+      // Construir un polígono cuadrado de ~40m alrededor del punto
+      var d=0.0002; // ~22m en grados (aprox); da un lote pequeño para el test
+      var lng=PC_PUNTO.lng, lat=PC_PUNTO.lat;
+      var miniPoligono={
+        type:'Polygon',
+        coordinates:[[
+          [lng-d,lat-d],[lng+d,lat-d],[lng+d,lat+d],[lng-d,lat+d],[lng-d,lat-d]
+        ]]
+      };
+      var afect=await detectarAfectacion(miniPoligono, PC_RESULTADO_PROV);
+      if(afect&&afect.afectado&&afect.conflictos&&afect.conflictos.length>0){
+        afectado=true;
+        afectNombre=afect.conflictos[0].name||'área protegida';
       }
     }
   }catch(e){console.warn('pc afectación:',e);}
