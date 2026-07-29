@@ -147,7 +147,7 @@ function instalarApp(){
 }
 </script>
 </head>
-<!-- VERSION-DEPLOY: VF63 — Portal: un solo mapa (Pre-Check) + deteccion de afectacion mas robusta con diagnostico -->
+<!-- VERSION-DEPLOY: VF64 — Herramienta de diagnostico de capas (diagnosticarCapas en consola) -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -689,6 +689,45 @@ function rMarketplace(){
 <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">
   ${OPPS.map((o,i)=>pcard(i+1,o.ti,o.ty,o.inv,o.roi,undefined,undefined,"Solicitar acceso →")).join("")}
 </div>`;}
+
+// ═══════════════════════════════════════════════════════════
+// DIAGNÓSTICO DE CAPAS (VF64) — ejecutar en consola: diagnosticarCapas()
+// ═══════════════════════════════════════════════════════════
+async function diagnosticarCapas(){
+  console.log('%c=== DIAGNÓSTICO DE CAPAS GEOGRÁFICAS ===','font-weight:bold;font-size:14px;color:#1565C0');
+  if(typeof SUPA==='undefined'){console.error('SUPA no disponible');return;}
+
+  // 1) restriction_zones
+  try{
+    var rz=await SUPA.from('restriction_zones').select('*');
+    console.log('%c\n📍 TABLA restriction_zones:','font-weight:bold;color:#2ECC71',(rz.data||[]).length,'registros');
+    (rz.data||[]).forEach(function(z){
+      var geo=z.geojson;
+      var tipoGeo=geo?(geo.type||'(sin type)'):'(SIN geojson)';
+      var nFeatures=0;
+      if(geo){
+        if(geo.type==='FeatureCollection'&&geo.features)nFeatures=geo.features.length;
+        else if(geo.type==='Feature')nFeatures=1;
+        else if(geo.coordinates)nFeatures=1;
+      }
+      console.log('  •',z.name,'| active:',z.active,'| zone_type:',z.zone_type,'| severity:',z.severity,'| geojson:',tipoGeo,'| polígonos:',nFeatures);
+    });
+  }catch(e){console.error('restriction_zones:',e);}
+
+  // 2) geo_layers (todas)
+  try{
+    var gl=await SUPA.from('geo_layers').select('id,name,dimension,subtype,measure_method,severity,source,feature_count,active');
+    console.log('%c\n🗺 TABLA geo_layers:','font-weight:bold;color:#F2C94C',(gl.data||[]).length,'registros');
+    (gl.data||[]).forEach(function(l){
+      var cargaAmbiental=(l.active&&l.dimension==='ambiental'&&l.measure_method==='interseccion');
+      console.log('  •',l.name,'| active:',l.active,'| dimension:',l.dimension,'| measure_method:',l.measure_method,'| features:',l.feature_count,cargaAmbiental?'%c✓ SE CARGA para afectación':'%c✗ NO se carga para afectación',cargaAmbiental?'color:#2ECC71':'color:#E74C3C');
+    });
+  }catch(e){console.error('geo_layers:',e);}
+
+  console.log('%c\n=== FIN DIAGNÓSTICO ===','font-weight:bold;color:#1565C0');
+  console.log('Para que una capa de geo_layers sea detectada como afectación necesita:');
+  console.log('  active=true  Y  dimension="ambiental"  Y  measure_method="interseccion"');
+}
 
 // ═══════════════════════════════════════════════════════════
 // PRE-CHECK GRATUITO (VF60) — captador de leads
