@@ -136,7 +136,7 @@ function instalarApp(){
 }
 </script>
 </head>
-<!-- VERSION-DEPLOY: VF73 — Diagnostico profundo de estructura del geojson de las zonas SINAP -->
+<!-- VERSION-DEPLOY: VF74 — FIX CRITICO: subir zona preserva TODOS los poligonos del GeoJSON (antes solo el primero) -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -837,48 +837,6 @@ async function _pcAnalizar(){
           [lng-d,lat-d],[lng+d,lat-d],[lng+d,lat+d],[lng-d,lat+d],[lng-d,lat-d]
         ]]
       };
-      // DIAGNÓSTICO TEMPORAL (VF72): mostrar qué capas está usando
-      try{
-        var _dc=await loadGeoLayersAmbientales();
-        console.log('%c[DIAGNÓSTICO] Capas ambientales en uso:','font-weight:bold;color:#1565C0');
-        (_dc||[]).forEach(function(c){
-          var nf=(c.features&&c.features.features)?c.features.features.length:0;
-          console.log('   - "'+c.name+'" | feature_count:'+c.feature_count+' | polígonos reales:'+nf+' | dimension:'+c.dimension+' | measure_method:'+c.measure_method);
-        });
-        var _rz=await loadRestrictionZones(PC_RESULTADO_PROV);
-        console.log('%c[DIAGNÓSTICO] Zonas de restricción en uso:','font-weight:bold;color:#1565C0');
-        var ptDiag=turf.point([lng,lat]);
-        (_rz||[]).forEach(function(z){
-          var g=z.geojson;
-          if(!g){console.log('   - "'+z.name+'" SIN geojson');return;}
-          // Estructura real
-          var tipo=g.type||'(sin type)';
-          var nf=0, subPolis=0;
-          if(g.type==='FeatureCollection'&&g.features){
-            nf=g.features.length;
-            g.features.forEach(function(f){if(f.geometry&&f.geometry.type==='MultiPolygon')subPolis+=f.geometry.coordinates.length;else if(f.geometry)subPolis+=1;});
-          } else if(g.type==='Feature'&&g.geometry){
-            nf=1; subPolis=(g.geometry.type==='MultiPolygon')?g.geometry.coordinates.length:1;
-          } else if(g.type==='MultiPolygon'&&g.coordinates){
-            nf=1; subPolis=g.coordinates.length;
-          } else if(g.coordinates){
-            nf=1; subPolis=1;
-          }
-          console.log('   - "'+z.name+'" | tipo geojson:'+tipo+' | features:'+nf+' | polígonos individuales:'+subPolis);
-          // Probar el punto contra esta zona directamente
-          var dentro=false;
-          try{
-            if(g.type==='FeatureCollection'&&g.features){
-              g.features.forEach(function(f){if(f.geometry){var p=geomToTurfPoly(f.geometry);if(p&&turf.booleanPointInPolygon(ptDiag,p))dentro=true;}});
-            } else {
-              var geom=(g.type==='Feature')?g.geometry:g;
-              var p=geomToTurfPoly(geom);
-              if(p&&turf.booleanPointInPolygon(ptDiag,p))dentro=true;
-            }
-          }catch(e){console.warn('     error probando zona:',e);}
-          console.log('%c     ¿El punto cae dentro de esta zona? '+(dentro?'SÍ ✓':'NO'),(dentro?'color:#2ECC71':'color:#8FA5BE')+';font-weight:bold');
-        });
-      }catch(eD){console.warn('diag capas:',eD);}
       var afect=await detectarAfectacion(miniPoligono, PC_RESULTADO_PROV);
       // Verificación de respaldo: probar el punto directamente contra cada
       // polígono de las capas ambientales (más robusto que el mini-polígono)
@@ -5557,8 +5515,21 @@ async function cargarZona(){
       var ext=file.name.split('.').pop().toLowerCase();
       if(ext==='geojson'||ext==='json'){
         var parsed=JSON.parse(txt);
-        var geom=parsed.type==='FeatureCollection'?(parsed.features[0]&&parsed.features[0].geometry):(parsed.type==='Feature'?parsed.geometry:parsed);
-        if(geom&&geom.coordinates)geojson=geom;
+        if(parsed.type==='FeatureCollection'&&parsed.features&&parsed.features.length>0){
+          // PRESERVAR TODOS los features (antes solo tomaba el primero)
+          if(parsed.features.length===1){
+            // Un solo feature: usar su geometría directamente
+            geojson=parsed.features[0].geometry;
+          } else {
+            // Varios features: guardar el FeatureCollection completo para
+            // conservar cada área protegida por separado
+            geojson=parsed;
+          }
+        } else if(parsed.type==='Feature'){
+          geojson=parsed.geometry;
+        } else if(parsed.coordinates){
+          geojson=parsed;
+        }
       } else if(ext==='kml'){
         var allCoords=txt.match(/<coordinates>([\s\S]*?)<\/coordinates>/gi);
         if(allCoords&&allCoords.length>0){
@@ -5572,7 +5543,10 @@ async function cargarZona(){
           else if(polys.length>1)geojson={type:'MultiPolygon',coordinates:polys.map(function(p){return [p];})};
         }
       }
-      if(!geojson||!geojson.coordinates){showStatus('⚠ No se pudo extraer un polígono válido del archivo.','red');return;}
+      var esValido=geojson&&(geojson.coordinates||(geojson.type==='FeatureCollection'&&geojson.features&&geojson.features.length>0));
+      if(!esValido){showStatus('⚠ No se pudo extraer un polígono válido del archivo.','red');return;}
+      // Informar cuántas áreas se detectaron
+      if(geojson.type==='FeatureCollection'){showStatus('Detectadas '+geojson.features.length+' áreas en el archivo. Guardando...','yellow');}
       showStatus('Guardando zona...','yellow');
       var ins=await SUPA.from('restriction_zones').insert({name:name,zone_type:type,severity:sev,source:src,province:prov||null,geojson:geojson,active:true});
       if(ins.error)throw ins.error;
