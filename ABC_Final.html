@@ -136,7 +136,7 @@ function instalarApp(){
 }
 </script>
 </head>
-<!-- VERSION-DEPLOY: VF66 — Diagnostico mejorado: bounding box de la capa SINAP para confirmar inversion o proyeccion -->
+<!-- VERSION-DEPLOY: VF67 — Diagnostico automatico del rango de coordenadas de la capa SINAP en cada Pre-Check -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -838,6 +838,28 @@ async function _pcAnalizar(){
         ]]
       };
       console.log('[Pre-Check] Analizando punto:',lat.toFixed(5),lng.toFixed(5),'en',PC_RESULTADO_PROV);
+      // DIAGNÓSTICO AUTOMÁTICO (VF67): analiza el rango de coordenadas de la capa SINAP
+      try{
+        var _capasDiag=await loadGeoLayersAmbientales();
+        (_capasDiag||[]).forEach(function(capa){
+          if(!capa.features||!capa.features.features)return;
+          var minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
+          function esc(c){if(!Array.isArray(c))return;if(typeof c[0]==='number'&&typeof c[1]==='number'){if(c[0]<minX)minX=c[0];if(c[0]>maxX)maxX=c[0];if(c[1]<minY)minY=c[1];if(c[1]>maxY)maxY=c[1];return;}c.forEach(esc);}
+          capa.features.features.forEach(function(f){if(f.geometry&&f.geometry.coordinates)esc(f.geometry.coordinates);});
+          console.log('%c[DIAGNÓSTICO] Capa "'+capa.name+'" — rango de coordenadas:','font-weight:bold;color:#1565C0');
+          console.log('   Primer valor (debería ser LONGITUD -72 a -68): de '+minX.toFixed(4)+' a '+maxX.toFixed(4));
+          console.log('   Segundo valor (debería ser LATITUD 17 a 20): de '+minY.toFixed(4)+' a '+maxY.toFixed(4));
+          if(minX>=15&&maxX<=21&&minY<=-67&&minY>=-73){
+            console.log('%c   ⚠⚠ INVERSIÓN DETECTADA: las coordenadas están [lat,lng] en vez de [lng,lat]','color:#E74C3C;font-weight:bold;font-size:13px');
+          } else if(minX>=-73&&maxX<=-67&&minY>=15&&maxY<=21){
+            console.log('%c   ✓ Coordenadas en orden correcto (el problema sería otro)','color:#2ECC71;font-weight:bold');
+          } else if(Math.abs(minX)>1000||Math.abs(minY)>1000){
+            console.log('%c   ⚠ Coordenadas en UTM (números grandes) — necesita reproyección a EPSG:4326','color:#F2C94C;font-weight:bold');
+          } else {
+            console.log('%c   ⚠ Rango inesperado — revisar proyección','color:#F2C94C;font-weight:bold');
+          }
+        });
+      }catch(eDiag){console.warn('diag auto:',eDiag);}
       var afect=await detectarAfectacion(miniPoligono, PC_RESULTADO_PROV);
       console.log('[Pre-Check] Resultado afectación:',afect);
       if(afect&&afect.afectado&&afect.conflictos&&afect.conflictos.length>0){
