@@ -136,7 +136,7 @@ function instalarApp(){
 }
 </script>
 </head>
-<!-- VERSION-DEPLOY: VF83 — Coherencia interna: RLVM respeta COS del uso sugerido, veredicto unificado, area aclarada, trazabilidad corregida -->
+<!-- VERSION-DEPLOY: VF84 — Coherencia total: propuestas, resumen y veredicto usan el uso sugerido (no el uso por defecto) -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -5291,19 +5291,21 @@ function generarPropuestasProyecto(r){
       } else if(usoSug.indexOf('industrial')>=0){
         if(/industri|logístic|logistic|nave|parque_industrial/.test(txt))return 1;
         if(/residenc|vivienda|turis|hotel/.test(txt))return -1;
-      } else if(usoSug.indexOf('agropecuar')>=0||usoSug.indexOf('cultivo')>=0||usoSug.indexOf('pastos')>=0){
-        if(/agro|agronegocio|agroindus|agroturis|finca|cultivo/.test(txt))return 1;
-        if(/residenc|urbanizacion|multifamiliar|complejo_turistico/.test(txt))return -1;
+      } else if(usoSug.indexOf('agropecuar')>=0||usoSug.indexOf('cultivo')>=0||usoSug.indexOf('pastos')>=0||usoSug.indexOf('forraje')>=0){
+        if(/agro|agronegocio|agroindus|agroturis|finca|cultivo|conservacion_productiva/.test(txt))return 1;
+        if(/residenc|urbanizacion|multifamiliar|complejo_turistico|villas|turis|hotel|comercial|plaza|industri|logistic/.test(txt))return -1;
       } else if(usoSug.indexOf('bosque')>=0||usoSug.indexOf('protección')>=0||usoSug.indexOf('proteccion')>=0||usoSug.indexOf('conservación')>=0||usoSug.indexOf('conservacion')>=0||usoSug.indexOf('hábitat')>=0||usoSug.indexOf('habitat')>=0||usoSug.indexOf('monumento')>=0||usoSug.indexOf('paisaje')>=0){
         if(/conservacion|eco_parque|ecoturis|forestal|conservacion_productiva|eco/.test(txt))return 1;
-        if(/residenc|urbanizacion|multifamiliar|industri|comercial|complejo_turistico|villas/.test(txt))return -1;
+        if(/residenc|urbanizacion|multifamiliar|industri|comercial|plaza|complejo_turistico|villas|turis|hotel/.test(txt))return -1;
       }
       return 0; // neutral
     }
+    // VF84: si el suelo es NO URBANIZABLE, la penalización es más severa
+    var _noUrb=(r.uso_sugerido&&r.uso_sugerido.clasificacion&&r.uso_sugerido.clasificacion.toLowerCase().indexOf('no urbanizable')>=0);
     C.forEach(function(c){
       var coh=_coherenciaConUso(c);
       if(coh>0)c.fit=(c.fit||0)+18;      // bonus por coherencia
-      else if(coh<0)c.fit=(c.fit||0)*0.4; // penalización por contradecir el uso sugerido
+      else if(coh<0)c.fit=(c.fit||0)*(_noUrb?0.10:0.4); // penalización (más severa si no urbanizable)
       c._coherenciaUso=coh;
     });
     // Recalcular el top con los fit ajustados
@@ -6605,11 +6607,19 @@ function verCertificado(){
       var area=areaNum>0?areaNum.toLocaleString()+' m²':'área no especificada';
       var usoCarto=land.uso_actual||'uso no especificado';
       var usoRealVal=land.uso_real||'';
-      var uso=usoRealVal||usoCarto; // el análisis usa el real si existe
-      // Texto transparente: si difieren, documentar ambos
-      var usoTexto=(usoRealVal&&usoRealVal!==usoCarto)
-        ?('<strong>'+usoRealVal+'</strong> (uso real observado; el uso cartográfico/oficial registra <strong>'+usoCarto+'</strong>, lo que evidencia la desactualización típica de la cartografía. El análisis prioriza el uso real)')
-        :('<strong>'+usoCarto+'</strong>');
+      var uso=usoRealVal||usoCarto;
+      // VF84: si hay uso sugerido de la propuesta territorial ABC, ese prevalece
+      // en la narrativa del informe (es el marco de referencia del análisis)
+      var usoSugObj=r.uso_sugerido;
+      var usoTexto;
+      if(usoSugObj&&usoSugObj.uso_principal){
+        var clasifTxt=usoSugObj.clasificacion?(' — suelo <strong>'+usoSugObj.clasificacion+'</strong>'):'';
+        usoTexto='<strong>'+usoSugObj.uso_principal+'</strong>'+clasifTxt+' (uso sugerido según el análisis territorial de ABC para esta zona; propuesta técnica, no zonificación oficial)';
+      } else {
+        usoTexto=(usoRealVal&&usoRealVal!==usoCarto)
+          ?('<strong>'+usoRealVal+'</strong> (uso real observado; el registro cartográfico indica <strong>'+usoCarto+'</strong>)')
+          :('<strong>'+usoCarto+'</strong>');
+      }
       var sc=r.score;
       var scLabel=sc>=80?'muy alto':sc>=65?'alto':sc>=50?'moderado':sc>=35?'bajo':'muy bajo';
       // VF31: La afectación geográfica crítica degrada el veredicto
@@ -6621,19 +6631,24 @@ function verCertificado(){
         scVerdict='NO APTO PARA DESARROLLO CONVENCIONAL — el terreno intersecta un área protegida'+(afectPct>0?' ('+afectPct+'% afectado)':'')+'. Solo son viables usos compatibles con conservación, sujetos a autorización ambiental.';
       } else if(afectCondicionada){
         scVerdict='APTO CONDICIONADO — el terreno está en zona de amortiguamiento; el desarrollo requiere autorización ambiental previa y usos de baja intensidad.';
+      } else if(r.uso_sugerido&&r.uso_sugerido.clasificacion&&r.uso_sugerido.clasificacion.toLowerCase().indexOf('no urbanizable')>=0){
+        // VF84: suelo no urbanizable según la propuesta territorial ABC
+        scVerdict='USO CONDICIONADO POR CLASIFICACIÓN TERRITORIAL — según el análisis de ABC, la zona es suelo no urbanizable con uso sugerido '+(r.uso_sugerido.uso_principal||'de baja intensidad')+'. El desarrollo inmobiliario convencional no es coherente con esta clasificación; se recomiendan usos compatibles con la vocación de la zona';
       } else {
         var hayAlertas=(r.restrictions&&r.restrictions.length>0)||(r.afectacion&&r.afectacion.afectado);
         var noRentable=(r.rlvm&&r.rlvm.desarrollo_no_rentable);
+        // Usar el sistema de rangos para coherencia con el resto del informe
+        var _rv=(typeof _rangoVeredicto==='function')?_rangoVeredicto(sc):{etiqueta:sc>=75?'POTENCIAL ALTO':sc>=55?'POTENCIAL CONDICIONADO':'NO RECOMENDABLE'};
         if(sc>=75){
-          scVerdict='APTO para estructuración y publicación al marketplace';
+          scVerdict=_rv.etiqueta+' — el terreno presenta condiciones favorables para su estructuración, sujeto a las verificaciones indicadas';
         } else if(sc>=55){
           scVerdict=noRentable
-            ?'APTO PARA USOS DE BAJO COSTO — el desarrollo inmobiliario convencional no es rentable en esta zona; el terreno es apto para usos agroproductivos, energéticos o de menor inversión'
+            ?_rv.etiqueta+' — el desarrollo inmobiliario convencional no es rentable en esta zona; el terreno es apto para usos agroproductivos, energéticos o de menor inversión'
             :(hayAlertas
-              ?'APTO CONDICIONAL — requiere validar las restricciones detectadas'
-              :'APTO CONDICIONAL — calidad territorial moderada; conviene un estudio de factibilidad antes de desarrollar');
+              ?_rv.etiqueta+' — requiere validar las restricciones detectadas'
+              :_rv.etiqueta+' — calidad territorial moderada; conviene un estudio de factibilidad antes de desarrollar');
         } else {
-          scVerdict='NO APTO — se recomienda revisar las limitaciones del terreno antes de avanzar';
+          scVerdict=_rv.etiqueta+' — se recomienda revisar las limitaciones del terreno antes de avanzar';
         }
       }
       var mejorCapa=r.breakdown.reduce(function(a,b){return(b.xi>a.xi)?b:a;},{xi:0,label:'—'});
