@@ -136,7 +136,7 @@ function instalarApp(){
 }
 </script>
 </head>
-<!-- VERSION-DEPLOY: VF84 — Coherencia total: propuestas, resumen y veredicto usan el uso sugerido (no el uso por defecto) -->
+<!-- VERSION-DEPLOY: VF85 — Modulo de oportunidades para suelo no urbanizable: usos legales 368-22 + incentivos fiscales + ventajas competitivas -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -3874,6 +3874,116 @@ var RD_MARKET={
 // Si no hay datos para la ubicación, devuelve null (se usa el modelo).
 // Degradación elegante: hoy RD no tiene esta data, pero queda listo.
 // ════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════
+// OPORTUNIDADES PARA SUELO NO URBANIZABLE (VF85)
+// Módulo de mediación territorial: para suelos agrícolas/forestales/no
+// urbanizables, muestra usos LEGALES, incentivos fiscales y ventajas
+// competitivas — con base en la Ley 368-22 y leyes de incentivo.
+// Principio: solo afirmar lo que la ley permite, con la cita y la salvedad.
+// ════════════════════════════════════════════════════════════════
+var ABC_USOS_NO_URBANIZABLE=[
+  {
+    id:'agrovoltaico', icon:'☀️🌱', titulo:'Proyecto agrovoltaico (agricultura + energía solar)',
+    desc:'Combina cultivos o pastos con paneles solares elevados. La tierra sigue produciendo mientras genera energía para autoconsumo o venta a la red.',
+    base_legal:'Ley 368-22 Art. 36 (uso agropecuario permitido) + Ley 57-07 (energía renovable)',
+    incentivo:'Exención del 100% de impuestos a la importación de equipos de generación renovable (Ley 57-07). Posible venta de excedentes al SENI.',
+    demanda:'El polo turístico de Punta Cana tiene alta demanda energética; la generación distribuida es un mercado en crecimiento.'
+  },
+  {
+    id:'agroturismo', icon:'🐎🌾', titulo:'Agroturismo / finca turística',
+    desc:'Fincas que reciben visitantes: tours agrícolas, gastronomía de origen, hospedaje rural de bajo impacto, experiencias de naturaleza.',
+    base_legal:'Ley 368-22 Art. 38 Párr. II (usos de interés social/desarrollo rural) + Ley 158-01 (fomento turístico)',
+    incentivo:'Puede calificar para incentivos de la Ley 158-01 (CONFOTUR): exenciones de impuestos sobre la renta y transferencia inmobiliaria para proyectos turísticos calificados.',
+    demanda:'Punta Cana recibe millones de turistas que buscan cada vez más experiencias auténticas de naturaleza y cultura local — un segmento poco cubierto frente al turismo de sol y playa.'
+  },
+  {
+    id:'ecoturismo', icon:'🌿🏕', titulo:'Ecoturismo y turismo de naturaleza',
+    desc:'Senderos, observación de aves, glamping ecológico, centros de interpretación ambiental. Aprovecha el valor del suelo protegido sin degradarlo.',
+    base_legal:'Ley 368-22 Art. 38 Párr. II (usos compatibles con conservación) + Ley 158-01',
+    incentivo:'Proyectos de ecoturismo pueden acogerse a CONFOTUR (Ley 158-01) y a incentivos de conservación. Bajo costo operativo y de suelo.',
+    demanda:'Creciente mercado internacional de turismo sostenible; los grandes hoteles de la zona buscan excursiones de naturaleza para sus huéspedes.'
+  },
+  {
+    id:'silvicultura', icon:'🌲', titulo:'Silvicultura comercial / plantación forestal',
+    desc:'Plantación de especies maderables o de valor (caoba, cedro, especies nativas) para aprovechamiento sostenible a mediano-largo plazo.',
+    base_legal:'Ley 368-22 Art. 40 (suelo forestal) + Ley Forestal 290-85',
+    incentivo:'La Ley Forestal 290-85 contempla incentivos para proyectos de silvicultura. Posible acceso a bonos de carbono y programas de reforestación.',
+    demanda:'Mercado de madera certificada y créditos de carbono en expansión; RD importa gran parte de la madera que consume.'
+  },
+  {
+    id:'agro_alto_valor', icon:'🥭', titulo:'Agricultura de alto valor para el sector hotelero',
+    desc:'Producción intensiva de frutas, vegetales, hierbas y productos gourmet para abastecer directamente a los hoteles y restaurantes de la zona.',
+    base_legal:'Ley 368-22 Art. 36 (uso agropecuario, derecho pleno del propietario)',
+    incentivo:'Insumos agrícolas con tratamiento fiscal preferente. Bomba solar para riego exenta bajo Ley 57-07. Cadena corta de suministro = mayor margen.',
+    demanda:'Los hoteles todo-incluido de Punta Cana importan gran parte de sus alimentos; hay demanda insatisfecha de producto fresco local y trazable.'
+  },
+  {
+    id:'conservacion_pago', icon:'🌳💵', titulo:'Conservación con pago por servicios ambientales',
+    desc:'Mantener el terreno en conservación puede generar ingresos vía esquemas de pago por servicios ambientales, bonos de carbono o alianzas.',
+    base_legal:'Ley 368-22 Art. 38 (usos compatibles con conservación) + marcos de servicios ambientales',
+    incentivo:'Acceso potencial a mercados de carbono voluntarios y programas de conservación. El suelo mantiene su valor ecológico y patrimonial.',
+    demanda:'Empresas turísticas y aerolíneas compran créditos de carbono para compensar emisiones; la conservación cercana a Punta Cana es atractiva.'
+  }
+];
+
+// Ventajas competitivas del suelo no urbanizable frente al urbano
+var ABC_VENTAJAS_NO_URB=[
+  {icon:'💰', t:'Menor costo de adquisición y mantenimiento', d:'El suelo no urbanizable tiene un valor de entrada mucho menor que el urbano, reduciendo la inversión inicial y el costo de oportunidad.'},
+  {icon:'🧾', t:'Carga impositiva más baja', d:'Los usos agrícolas y forestales suelen tener tratamiento fiscal más favorable que el desarrollo inmobiliario urbano.'},
+  {icon:'🌍', t:'Acceso a incentivos verdes exclusivos', d:'Leyes como la 57-07 (renovables), 290-85 (forestal) y 158-01 (ecoturismo) ofrecen exenciones que el suelo urbano convencional no puede aprovechar.'},
+  {icon:'🎯', t:'Demanda no cubierta en el ecosistema de Punta Cana', d:'Turismo de naturaleza, producto agro local para hoteles y energía renovable son mercados con demanda insatisfecha en la región.'},
+  {icon:'📈', t:'Revalorización a largo plazo', d:'Un terreno productivo y bien gestionado conserva y aumenta su valor, sin depender de un cambio de clasificación urbana.'}
+];
+
+function _seccionOportunidadesNoUrb(r){
+  // Solo para suelo no urbanizable / agrícola / forestal
+  var us=r.uso_sugerido;
+  if(!us)return '';
+  var clasif=(us.clasificacion||'').toLowerCase();
+  var usoP=(us.uso_principal||'').toLowerCase();
+  var esNoUrb=clasif.indexOf('no urbanizable')>=0;
+  var esAgroForestal=/agr[íi]cola|agropecuar|forestal|bosque|cultivo|pastos|forraje|conservaci/.test(usoP);
+  if(!esNoUrb && !esAgroForestal)return ''; // no aplica a suelo urbano/urbanizable
+
+  // Seleccionar las oportunidades más pertinentes según el uso
+  var ops=ABC_USOS_NO_URBANIZABLE.slice();
+  // Si es específicamente forestal/conservación, priorizar esas
+  if(/forestal|bosque|conservaci|protecci/.test(usoP)){
+    ops.sort(function(a,b){
+      var af=/silvicultura|conservacion|ecoturismo/.test(a.id)?0:1;
+      var bf=/silvicultura|conservacion|ecoturismo/.test(b.id)?0:1;
+      return af-bf;
+    });
+  }
+  var opsHtml=ops.map(function(o){
+    return '<div style="border:1px solid #d0d7de;border-radius:8px;padding:12px 14px;margin-bottom:10px;background:#fafbfc">'
+      +'<div style="font-size:11pt;font-weight:700;color:#1b5e20;margin-bottom:4px">'+o.icon+' '+o.titulo+'</div>'
+      +'<p style="font-size:9.5pt;color:#333;margin-bottom:6px">'+o.desc+'</p>'
+      +'<div style="font-size:8.5pt;color:#555;line-height:1.6">'
+        +'<div><strong style="color:#1565C0">⚖ Base legal:</strong> '+o.base_legal+'</div>'
+        +'<div><strong style="color:#2e7d32">💰 Ventaja fiscal:</strong> '+o.incentivo+'</div>'
+        +'<div><strong style="color:#e65100">🎯 Oportunidad de mercado:</strong> '+o.demanda+'</div>'
+      +'</div>'
+    +'</div>';
+  }).join('');
+
+  var ventajasHtml=ABC_VENTAJAS_NO_URB.map(function(v){
+    return '<tr><td style="width:32px;font-size:14pt;text-align:center;vertical-align:top;padding:6px 4px">'+v.icon+'</td><td style="padding:6px 8px"><strong>'+v.t+'</strong><br><span style="font-size:9pt;color:#555">'+v.d+'</span></td></tr>';
+  }).join('');
+
+  return '<h2>Oportunidades para su Terreno según su Clasificación</h2>'
+    +'<div style="background:#e8f5e9;border-left:4px solid #2e7d32;padding:12px 14px;margin-bottom:12px;border-radius:4px">'
+      +'<p style="font-size:10pt;margin-bottom:4px"><strong>Su terreno tiene valor y oportunidades reales.</strong> La clasificación como suelo no urbanizable/agrícola no significa que no pueda generar ingresos. Al contrario: existen usos legales, incentivos fiscales exclusivos y mercados con demanda insatisfecha que el suelo urbano no puede aprovechar.</p>'
+    +'</div>'
+    +'<h3 style="color:#1565C0;font-size:11pt;margin:14px 0 8px">Usos productivos permitidos por la ley</h3>'
+    +opsHtml
+    +'<h3 style="color:#1565C0;font-size:11pt;margin:16px 0 8px">Ventajas competitivas frente al suelo urbano</h3>'
+    +'<table style="width:100%"><tbody>'+ventajasHtml+'</tbody></table>'
+    +'<div style="background:#fff8e1;border:1px solid #ffd54f;border-radius:6px;padding:11px 14px;margin-top:12px">'
+      +'<p style="font-size:8.5pt;color:#6d5a00;margin:0"><strong>⚠ Importante:</strong> Los usos e incentivos descritos son <strong>orientativos</strong> y se basan en la legislación vigente (Ley 368-22, Ley 57-07, Ley 290-85, Ley 158-01). Su aplicación concreta <strong>requiere calificación y autorización de las autoridades competentes</strong> (ayuntamiento, MEPyD, Ministerio de Medio Ambiente, CONFOTUR, Ministerio de Agricultura, según el caso). No constituyen asesoría legal ni garantía de aprobación. Se recomienda consultar con un profesional antes de invertir.</p>'
+    +'</div>';
+}
+
 var GEO_USOS_CACHE=null;
 // ════════════════════════════════════════════════════════════════
 // USO SUGERIDO POR UBICACIÓN (VF80 — Fase 1)
@@ -6529,6 +6639,7 @@ function verCertificado(){
         +(filas?'<table><thead><tr><th>Parámetro urbanístico sugerido</th><th>Valor</th></tr></thead><tbody>'+filas+'</tbody></table>':'')
         +'<p style="font-size:8.5pt;color:#888;margin-top:6px">Fuente: '+(us.fuente||'Propuesta territorial ABC')+'. Parámetros orientativos sujetos a validación normativa.</p>';
     })()+
+    _seccionOportunidadesNoUrb(r)+
     (r.restrictions.length>0?'<h2>Restricciones</h2><ul>'+r.restrictions.map(function(x){return'<li>'+x+'</li>';}).join('')+'</ul>':'')+
     '<h2>Valoración por Residual Land Value Method (RLVM)</h2>'+
     (r.rlvm ? 
