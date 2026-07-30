@@ -136,7 +136,7 @@ function instalarApp(){
 }
 </script>
 </head>
-<!-- VERSION-DEPLOY: VF89 — Atribucion corregida: informes atribuyen la metodologia solo a ABC (sin terceros) -->
+<!-- VERSION-DEPLOY: VF90 — Coherencia: justificaciones contextuales por clasificacion, ausencia de POT explicita, propuestas coherentes con proteccion/riesgo -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -5468,9 +5468,9 @@ function generarPropuestasProyecto(r){
       } else if(usoSug.indexOf('agropecuar')>=0||usoSug.indexOf('cultivo')>=0||usoSug.indexOf('pastos')>=0||usoSug.indexOf('forraje')>=0){
         if(/agro|agronegocio|agroindus|agroturis|finca|cultivo|conservacion_productiva/.test(txt))return 1;
         if(/residenc|urbanizacion|multifamiliar|complejo_turistico|villas|turis|hotel|comercial|plaza|industri|logistic/.test(txt))return -1;
-      } else if(usoSug.indexOf('bosque')>=0||usoSug.indexOf('protección')>=0||usoSug.indexOf('proteccion')>=0||usoSug.indexOf('conservación')>=0||usoSug.indexOf('conservacion')>=0||usoSug.indexOf('hábitat')>=0||usoSug.indexOf('habitat')>=0||usoSug.indexOf('monumento')>=0||usoSug.indexOf('paisaje')>=0){
-        if(/conservacion|eco_parque|ecoturis|forestal|conservacion_productiva|eco/.test(txt))return 1;
-        if(/residenc|urbanizacion|multifamiliar|industri|comercial|plaza|complejo_turistico|villas|turis|hotel/.test(txt))return -1;
+      } else if(usoSug.indexOf('bosque')>=0||usoSug.indexOf('protección')>=0||usoSug.indexOf('proteccion')>=0||usoSug.indexOf('conservación')>=0||usoSug.indexOf('conservacion')>=0||usoSug.indexOf('hábitat')>=0||usoSug.indexOf('habitat')>=0||usoSug.indexOf('monumento')>=0||usoSug.indexOf('paisaje')>=0||usoSug.indexOf('riesgo')>=0||usoSug.indexOf('frágil')>=0||usoSug.indexOf('fragil')>=0){
+        if(/conservacion|eco_parque|ecoturis|forestal|conservacion_productiva|eco|solar|fotovoltaic|renovable/.test(txt))return 1;
+        if(/residenc|vivienda|urbanizacion|multifamiliar|industri|comercial|plaza|complejo_turistico|villas|turis|hotel|social/.test(txt))return -1;
       }
       return 0; // neutral
     }
@@ -6684,13 +6684,30 @@ function verCertificado(){
       var us=r.uso_sugerido;
       if(!us||!us.uso_principal)return '';
       var params=[];
-      // Cada parámetro con su justificación técnico-legal (marco Ley 368-22 y análisis territorial ABC)
-      if(us.clasificacion)params.push(['Clasificación de suelo',us.clasificacion,'Categoría base del suelo según la Ley 368-22 (Art. 33): urbano, urbanizable o no urbanizable. Determina el régimen de usos permitidos.']);
-      if(us.calificacion)params.push(['Calificación',us.calificacion,'Actividad predominante asignada al suelo conforme a la clasificación de usos de la Ley 368-22, a partir del análisis territorial realizado por ABC.']);
-      if(us.num_pisos!=null&&us.num_pisos!=='')params.push(['Pisos máximos',us.num_pisos,'Límite de altura en niveles para preservar la escala, el paisaje y la vocación de la zona. En suelo no urbanizable se restringe para evitar densificación incompatible.']);
+      // Justificaciones CONTEXTUALES según la clasificación real del suelo (VF90)
+      var _cl=(us.clasificacion||'').toLowerCase();
+      var _esNoUrb=_cl.indexOf('no urbanizable')>=0;
+      var _esUrbano=_cl.indexOf('urbano')>=0&&!_esNoUrb;
+      var _esUrbanizable=_cl.indexOf('urbanizable')>=0&&!_esNoUrb;
+      var _cosNum=parseFloat(us.cos_total);
+      // Justificación de pisos según contexto
+      var _jPisos=_esNoUrb
+        ?'Límite de niveles acorde con la vocación de baja intensidad del suelo no urbanizable, para evitar densificación incompatible con el uso productivo o de protección.'
+        :'Límite de niveles que regula la densidad y la escala edificatoria, preservando la relación con el entorno y la capacidad de las infraestructuras.';
+      var _jCos=_esNoUrb
+        ?'Coeficiente de Ocupación del Suelo: proporción máxima edificable del lote. En suelo no urbanizable se mantiene bajo para preservar la vocación productiva o de protección y las áreas permeables.'
+        :'Coeficiente de Ocupación del Suelo: proporción máxima edificable del lote. Regula la densidad edificatoria y garantiza áreas libres permeables acordes con la capacidad del suelo urbano.';
+      var _jLote=_esNoUrb
+        ?'Superficie mínima de parcela que evita la fragmentación del suelo no urbanizable y sostiene su uso productivo (agropecuario/forestal) o de protección.'
+        :'Superficie mínima de parcela que garantiza condiciones adecuadas de habitabilidad, servicios e integración con la trama urbana.';
+      // Justificación de clasificación aludiendo a que es propuesta (no POT vigente)
+      var _jClasif='Categoría base del suelo (urbano, urbanizable o no urbanizable) que determina el régimen de usos. Propuesta técnica de ABC conforme a los criterios de la Ley 368-22, en ausencia de un POT oficial vigente para el territorio.';
+      if(us.clasificacion)params.push(['Clasificación de suelo',us.clasificacion,_jClasif]);
+      if(us.calificacion)params.push(['Calificación',us.calificacion,'Actividad predominante asignada al suelo según el análisis territorial de ABC, siguiendo la clasificación de usos de la Ley 368-22.']);
+      if(us.num_pisos!=null&&us.num_pisos!=='')params.push(['Pisos máximos',us.num_pisos,_jPisos]);
       if(us.altura_edif!=null&&us.altura_edif!=='')params.push(['Altura máxima',us.altura_edif+' m','Altura máxima de edificación coherente con los pisos permitidos, la seguridad estructural y la integración con el entorno.']);
-      if(us.cos_total!=null&&us.cos_total!=='')params.push(['COS total',us.cos_total+'%','Coeficiente de Ocupación del Suelo: proporción máxima edificable del lote. Regula la densidad y preserva áreas permeables. Un COS bajo protege la vocación agrícola/ambiental del suelo.']);
-      if(us.lote_min!=null&&us.lote_min!=='')params.push(['Lote mínimo',Number(us.lote_min).toLocaleString()+' m²','Superficie mínima de parcela que garantiza la vocación del suelo. En suelo no urbanizable (Art. 36) evita la fragmentación y sostiene el uso productivo agropecuario o forestal.']);
+      if(us.cos_total!=null&&us.cos_total!=='')params.push(['COS total',us.cos_total+'%',_jCos]);
+      if(us.lote_min!=null&&us.lote_min!=='')params.push(['Lote mínimo',Number(us.lote_min).toLocaleString()+' m²',_jLote]);
       if(us.frente_min!=null&&us.frente_min!=='')params.push(['Frente mínimo',us.frente_min+' m','Ancho mínimo de la parcela hacia la vía, para garantizar acceso, servicios e integración con la trama.']);
       if(us.ret_frontal!=null&&us.ret_frontal!=='')params.push(['Retiro frontal',us.ret_frontal+' m','Distancia mínima entre la edificación y el lindero frontal, por seguridad vial, ventilación, iluminación y armonía urbana/paisajística.']);
       if(us.cod_zonif)params.push(['Código de zonificación',us.cod_zonif,'Código interno de la propuesta territorial ABC que sintetiza la clasificación, uso y parámetros asignados a la zona.']);
@@ -6749,6 +6766,7 @@ function verCertificado(){
           +'<tr style="background:#f3fbf4"><td style="font-size:8pt;color:#666">Rango estimado (±'+bandaPct+'%)</td><td style="text-align:right;font-size:8pt;color:#666">US$ '+potBajo.toLocaleString()+' – '+potAlto.toLocaleString()+'</td><td style="text-align:right;font-size:8pt;color:#666">US$ '+m2PotBajo.toLocaleString()+'–'+m2PotAlto.toLocaleString()+'/m²</td></tr>'
           +'<tr style="background:#fff3e0;font-weight:bold"><td><strong>Ganancia potencial estimada</strong></td><td style="text-align:right;color:#e65100">US$ '+(vPot-vActual).toLocaleString()+'</td><td style="text-align:right;color:#e65100">×'+mult+' ('+pctGanancia+'% retorno)</td></tr>'
           +'</table>'
+          +((parseFloat(pctGanancia)>=200)?'<div style="background:#FFF3E0;border:1px solid #FFB74D;border-radius:6px;padding:9px 12px;margin:2px 0 10px"><span style="font-size:8pt;color:#7a5a2a"><strong>⚠ Sobre este retorno tan elevado:</strong> el multiplicador alto refleja principalmente el <strong>bajo precio de partida del suelo</strong> en esta zona (frecuente en suelo de protección, agrícola o no consolidado), no una rentabilidad garantizada. Un desarrollo real enfrentaría costos de habilitación, permisos, cambio de uso e infraestructura no incluidos en este modelo preliminar. Léase como indicio de potencial, no como retorno esperable; requiere estudio de factibilidad y tasación formal.</span></div>':'')
           +((r.rlvm&&r.rlvm.desarrollo_no_rentable)?'<div style="background:#FFF3E0;border:1px solid #FFB74D;border-radius:6px;padding:9px 12px;margin:6px 0 10px"><strong style="color:#E65100;font-size:9pt">⚠ Desarrollo convencional marginal en esta zona.</strong><span style="font-size:8.5pt;color:#5a4a2a"> El precio de venta estimado en '+((ACTIVE_LAND&&ACTIVE_LAND.province)||'esta zona')+' apenas supera el costo de construcción, por lo que el método residual arroja un valor de suelo muy bajo o nulo. Esto NO significa que el terreno carezca de valor: significa que un desarrollo inmobiliario convencional (vivienda/comercial para venta) no es la vía más rentable aquí. El valor del terreno proviene de su uso actual (agropecuario, forestal) o de proyectos de menor costo. El "Valor actual de mercado del suelo" de arriba es la referencia válida para este lote, no el residual.</span></div>':'')
           +'<p style="font-size:7.5pt;color:#999;margin:2px 0 10px">El rango ±'+bandaPct+'% refleja la incertidumbre propia de una estimación automatizada. El valor real puede situarse fuera de este rango según condiciones específicas del lote, del título y del momento de mercado.</p>'
           +(function(){
@@ -6797,6 +6815,8 @@ function verCertificado(){
           :('<strong>'+usoCarto+'</strong>');
       }
       var sc=r.score;
+      // VF90: etiqueta descriptiva del puntaje (no del veredicto). Se aclara que
+      // es el nivel del score técnico, para no confundir con el veredicto final.
       var scLabel=sc>=80?'muy alto':sc>=65?'alto':sc>=50?'moderado':sc>=35?'bajo':'muy bajo';
       // VF31: La afectación geográfica crítica degrada el veredicto
       var afectCritica=(r.afectacion&&r.afectacion.afectado&&r.afectacion.maxSeveridad==='critica');
@@ -6840,7 +6860,11 @@ function verCertificado(){
           alertasReales.push('intersección con '+c.name+' ('+c.severity+(c.pct!=null?', '+c.pct+'% del lote':'')+')');
         });
       }
-      var restr=alertasReales.length>0?'⚠ El análisis geográfico identificó las siguientes condiciones que requieren atención: '+alertasReales.join('; ')+'. Estas condiciones afectan la viabilidad del desarrollo y deben validarse con las autoridades competentes (MIMARENA, INDRHI, Catastro) antes de cualquier transacción.':'No se identificaron restricciones críticas ni zonas de riesgo que comprometan la viabilidad del terreno.';
+      // VF90: el uso sugerido de protección/riesgo también es una condición a advertir
+      var _usoProteccion=(r.uso_sugerido&&r.uso_sugerido.uso_principal&&/protecci|riesgo|conservaci|frágil|fragil|hábitat|habitat/i.test(r.uso_sugerido.uso_principal));
+      var _alertasComb=alertasReales.slice();
+      if(_usoProteccion)_alertasComb.push('el uso sugerido para la zona ('+r.uso_sugerido.uso_principal+') indica una vocación de protección o gestión de riesgos que condiciona el desarrollo');
+      var restr=_alertasComb.length>0?'⚠ El análisis territorial identificó las siguientes condiciones que requieren atención: '+_alertasComb.join('; ')+'. Estas condiciones pueden afectar la viabilidad del desarrollo y deben validarse con las autoridades competentes (ayuntamiento, MIMARENA, INDRHI, Catastro) antes de cualquier transacción.':'El análisis no identificó restricciones críticas evidentes en las capas evaluadas; no obstante, la ausencia de un POT oficial vigente hace recomendable validar el uso y las condiciones del suelo ante las autoridades competentes.';
       var rlvmNarr=r.rlvm?(
         'Desde el punto de vista financiero, el motor RLVM estimó sobre un lote de '
         +areaNum.toLocaleString()+' m² en '+prov
@@ -6879,7 +6903,7 @@ function verCertificado(){
       }
       return '<div style="line-height:1.8;font-size:11pt;color:#333">'
         +'<p style="margin-bottom:10px">El presente análisis territorial fue realizado sobre el inmueble denominado <strong>'+landName+'</strong>, ubicado en <strong>'+prov+'</strong>, con una superficie de <strong>'+area+'</strong> y uso clasificado como '+usoTexto+'. El análisis fue procesado mediante el motor de análisis multicriterio WLC (Weighted Linear Combination) de ABC Territorial Intelligence, cruzando <strong>'+numLayers+' capas GIS</strong> con datos territoriales reales de República Dominicana.</p>'
-        +'<p style="margin-bottom:10px">El Score WLC obtenido es de <strong>'+sc+'/100</strong>, calificado como <strong>'+scLabel.toUpperCase()+'</strong>, con veredicto de idoneidad: <strong>'+scVerdict+'</strong>. '+pca+'</p>'
+        +'<p style="margin-bottom:10px">El Score WLC obtenido es de <strong>'+sc+'/100</strong> (nivel de puntaje técnico: '+scLabel+'). Veredicto de idoneidad: <strong>'+scVerdict+'</strong>. '+pca+'</p>'
         +(function(){
           // VF56: bloque explicativo del veredicto (qué significa, qué favoreció/bajó, confianza)
           var ve=_veredictoExplicado(r);
