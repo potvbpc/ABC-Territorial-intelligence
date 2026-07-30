@@ -136,7 +136,7 @@ function instalarApp(){
 }
 </script>
 </head>
-<!-- VERSION-DEPLOY: VF97 — Resuelto conflicto de columnas duplicadas (es/en) en opportunities: escribe y lee en ambas -->
+<!-- VERSION-DEPLOY: VF98 — Eliminado fallback demo en gestor de oportunidades (causaba id ficticio 1 en vez de UUID real) -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -1245,8 +1245,9 @@ async function rOpps(){
     var r=await SUPA.from('opportunities').select('*,lands(name,province,area_m2)').order('created_at',{ascending:false});
     if(!r.error)opps=r.data||[];
   }catch(e){console.warn('opps:',e);}
-  // Fallback to OPPS for display if empty
-  if(opps.length===0)opps=OPPS.map(function(o){return {id:o.id,titulo:o.ti,tipo:o.ty,inversion_minima:o.inv,roi:o.roi,status:o.st,active:true};});
+  // VF98: NO usar datos demo como respaldo (tienen ids ficticios que rompen
+  // las operaciones reales). Si no hay proyectos, se muestra el estado vacío.
+  // opps queda como está (vacío o con proyectos reales de Supabase).
 
   var div=document.createElement('div');
   div.style.cssText='background:#0E1E2E;border:1px solid rgba(255,255,255,.09);border-radius:13px;padding:20px';
@@ -1283,7 +1284,7 @@ function renderOppsAdmin(opps){
   var statusColors={en_estructuracion:'#F2C94C',estructurado:'#42A5F5',validado:'#2ECC71',publicado:'#8B5CF6',rechazado:'#E74C3C'};
   var statusLabels={en_estructuracion:'En estructuracion',estructurado:'Estructurado',validado:'Validado',publicado:'Publicado',rechazado:'Rechazado'};
   if(opps.length===0){
-    grid.innerHTML='<div style="grid-column:1/-1;text-align:center;padding:40px;color:#8FA5BE">No hay oportunidades. Se crean automaticamente al generar un Diagnostico Inteligente con score mayor a 70.</div>';
+    grid.innerHTML='<div style="grid-column:1/-1;text-align:center;padding:40px;color:#8FA5BE">Aún no hay proyectos en el marketplace.<br><br>Los proyectos se crean automáticamente al generar un Diagnóstico con score alto, o puedes crear uno manualmente con el botón de arriba. Una vez creado, podrás subirle fotos y publicarlo.</div>';
     return;
   }
   grid.innerHTML=opps.map(function(o){
