@@ -136,7 +136,7 @@ function instalarApp(){
 }
 </script>
 </head>
-<!-- VERSION-DEPLOY: VF81 — Uso sugerido: deteccion flexible de la capa (por dimension o nombre) + diagnostico -->
+<!-- VERSION-DEPLOY: VF82 — Fase 2 usos sugeridos: propuestas coherentes con la propuesta territorial ABC + etiqueta visible -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -5243,6 +5243,55 @@ function generarPropuestasProyecto(r){
       }
     }
   }
+  // ── VF82 FASE 2: COHERENCIA CON EL USO SUGERIDO (propuesta territorial ABC) ──
+  // Si el terreno cae en una zona con uso sugerido, las propuestas que
+  // coinciden con ese uso ganan encaje; las que lo contradicen lo pierden.
+  var usoSug=(r.uso_sugerido&&r.uso_sugerido.uso_principal)?r.uso_sugerido.uso_principal.toLowerCase():'';
+  if(usoSug){
+    // Mapa: uso sugerido → familias de propuestas coherentes (por id o palabra)
+    function _coherenciaConUso(c){
+      var id=(c.id||'').toLowerCase();
+      var titulo=(c.titulo||'').toLowerCase();
+      var sistema=(c.sistema||'').toLowerCase();
+      var txt=id+' '+titulo+' '+sistema;
+      // Definir afinidad según el uso sugerido de la zona
+      if(usoSug.indexOf('residencial')>=0){
+        if(/residenc|vivienda|multifamiliar|urbanizacion|villas/.test(txt))return 1;
+        if(/industri|logístic|logistic|minero|agroindus/.test(txt))return -1;
+      } else if(usoSug.indexOf('turístic')>=0||usoSug.indexOf('turistic')>=0){
+        if(/turis|hotel|villas|complejo_turistico|ecoturis|resort/.test(txt))return 1;
+        if(/industri|logístic|logistic|minero/.test(txt))return -1;
+      } else if(usoSug.indexOf('comercial')>=0){
+        if(/comercial|mixto|oficina|plaza|retail/.test(txt))return 1;
+        if(/industri|minero|agro/.test(txt))return -1;
+      } else if(usoSug.indexOf('mixto')>=0){
+        if(/mixto|residenc|comercial|vivienda|multifamiliar/.test(txt))return 1;
+      } else if(usoSug.indexOf('industrial')>=0){
+        if(/industri|logístic|logistic|nave|parque_industrial/.test(txt))return 1;
+        if(/residenc|vivienda|turis|hotel/.test(txt))return -1;
+      } else if(usoSug.indexOf('agropecuar')>=0||usoSug.indexOf('cultivo')>=0||usoSug.indexOf('pastos')>=0){
+        if(/agro|agronegocio|agroindus|agroturis|finca|cultivo/.test(txt))return 1;
+        if(/residenc|urbanizacion|multifamiliar|complejo_turistico/.test(txt))return -1;
+      } else if(usoSug.indexOf('bosque')>=0||usoSug.indexOf('protección')>=0||usoSug.indexOf('proteccion')>=0||usoSug.indexOf('conservación')>=0||usoSug.indexOf('conservacion')>=0||usoSug.indexOf('hábitat')>=0||usoSug.indexOf('habitat')>=0||usoSug.indexOf('monumento')>=0||usoSug.indexOf('paisaje')>=0){
+        if(/conservacion|eco_parque|ecoturis|forestal|conservacion_productiva|eco/.test(txt))return 1;
+        if(/residenc|urbanizacion|multifamiliar|industri|comercial|complejo_turistico|villas/.test(txt))return -1;
+      }
+      return 0; // neutral
+    }
+    C.forEach(function(c){
+      var coh=_coherenciaConUso(c);
+      if(coh>0)c.fit=(c.fit||0)+18;      // bonus por coherencia
+      else if(coh<0)c.fit=(c.fit||0)*0.4; // penalización por contradecir el uso sugerido
+      c._coherenciaUso=coh;
+    });
+    // Recalcular el top con los fit ajustados
+    top.forEach(function(c){/* ya están en C, el fit se actualizó por referencia */});
+    top.sort(function(a,b){return b.fit-a.fit;});
+    // Reconstruir el top tomando las 3 mejores tras el ajuste
+    var reordenado=C.slice().filter(function(c){return c.fit>0;}).sort(function(a,b){return b.fit-a.fit;}).slice(0,3);
+    if(reordenado.length>0)top=reordenado;
+  }
+
   top.sort(function(a,b){return b.fit-a.fit;});
 
   return top.map(function(c){
@@ -5250,7 +5299,7 @@ function generarPropuestasProyecto(r){
     return {icon:c.icon,titulo:c.titulo,prioridad:prioridad,sistema:c.sistema,
       desc:c.desc,encaje:c.encaje,deficit_resuelto:c.deficit_resuelto||null,
       fit_score:Math.round(c.fit),programa_ratio:c.ratio||0.5,energia:c.energia||false,
-      afectado:c.afectado||false,vocacion:c.vocacion||false};
+      afectado:c.afectado||false,vocacion:c.vocacion||false,coherencia_uso:c._coherenciaUso||0};
   });
 }
 
@@ -6073,7 +6122,7 @@ function verReportePropuestas(){
   props.forEach(function(p,i){
     var prioColor=p.prioridad.indexOf('Alta')>=0?'#27AE60':p.prioridad.indexOf('Media-Alta')>=0?'#16A085':'#F39C12';
     content+='<div class="no-break" style="border:1px solid #ddd;border-left:5px solid '+prioColor+';border-radius:0 10px 10px 0;padding:16px 18px;margin:16px 0;background:#fafbfc">'
-      +'<div style="font-size:13pt;font-weight:800;color:#0d2b4e;margin-bottom:4px">'+p.icon+' Propuesta '+(i+1)+': '+p.titulo+'</div>'
+      +'<div style="font-size:13pt;font-weight:800;color:#0d2b4e;margin-bottom:4px">'+p.icon+' Propuesta '+(i+1)+': '+p.titulo+(p.coherencia_uso>0?' <span style="font-size:8pt;background:#1565C0;color:white;padding:2px 8px;border-radius:10px;vertical-align:middle;font-weight:700">✓ Alineada con uso sugerido ABC</span>':'')+'</div>'
       +'<div style="font-size:8.5pt;font-weight:700;color:white;background:'+prioColor+';padding:2px 10px;border-radius:10px;display:inline-block;margin-bottom:8px">Prioridad '+p.prioridad+'</div>'
       +'<p style="font-size:10pt;color:#333;line-height:1.7;margin:8px 0">'+p.desc+'</p>'
       +'<div style="font-size:9pt;color:#1565C0;margin:6px 0"><strong>Encaje territorial:</strong> '+p.encaje+'</div>'
