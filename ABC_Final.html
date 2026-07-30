@@ -136,7 +136,7 @@ function instalarApp(){
 }
 </script>
 </head>
-<!-- VERSION-DEPLOY: VF82 — Fase 2 usos sugeridos: propuestas coherentes con la propuesta territorial ABC + etiqueta visible -->
+<!-- VERSION-DEPLOY: VF83 — Coherencia interna: RLVM respeta COS del uso sugerido, veredicto unificado, area aclarada, trazabilidad corregida -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -4043,6 +4043,23 @@ function computeRLVM(mkt, wlcScore, precioGeo) {
     uso.includes('logístico') || uso.includes('Logístico') ? 0.62 :
     0.55; // mixto por defecto
 
+  // VF83: Si el uso sugerido ABC define un COS (coef. de ocupación), RESPETARLO.
+  // Esto evita calcular un desarrollo intensivo sobre suelo que la propuesta
+  // territorial marca como no urbanizable o de baja edificabilidad.
+  var _usoSug = (typeof WLC_RESULT!=='undefined'&&WLC_RESULT&&WLC_RESULT.uso_sugerido)?WLC_RESULT.uso_sugerido:(window._usoSugeridoActual||null);
+  var _limitadoPorUso=false;
+  if(_usoSug && _usoSug.cos_total!=null && _usoSug.cos_total!==''){
+    var cosFrac = parseFloat(_usoSug.cos_total)/100; // COS viene en % (ej. 2 → 0.02, 120 → 1.20)
+    if(!isNaN(cosFrac) && cosFrac>0){
+      // El COS es el ratio de edificabilidad real de la zona. Usarlo como tope.
+      // (COS total puede ser >100% si permite varios pisos)
+      RATIO_CONSTRUCCION = cosFrac;
+      _limitadoPorUso=true;
+    }
+  }
+  // Si la clasificación es "No urbanizable", la edificabilidad es mínima
+  var _noUrbanizable = _usoSug && _usoSug.clasificacion && _usoSug.clasificacion.toLowerCase().indexOf('no urbanizable')>=0;
+
   // Ajuste por score WLC: terrenos con score alto tienen mayor potencial constructivo
   var AJUSTE_SCORE = 0.60 + (wlcScore / 100) * 0.40; // entre 0.60 y 1.00
   var area_construida = Math.round(AREA_M2 * RATIO_CONSTRUCCION * AJUSTE_SCORE);
@@ -4179,6 +4196,9 @@ function computeRLVM(mkt, wlcScore, precioGeo) {
     // Parámetros de mercado usados
     area_m2: AREA_M2,
     area_construida: area_construida,
+    ratio_construccion: RATIO_CONSTRUCCION,
+    limitado_por_uso: _limitadoPorUso,
+    no_urbanizable: _noUrbanizable,
     precio_venta_m2: mkt.precio_venta_m2_usd,
     costo_construccion_m2: mkt.costo_construccion_m2_usd,
     tasa_interes: mkt.tasa_interes_anual,
@@ -4828,7 +4848,17 @@ async function runFullAnalysis(){
   var m=await fetchGisMetrics();
   var pca=runPCA(m);
   var result=runWLC(m,pca);
-  // Step 3: Fetch real market data and compute RLVM
+  // VF83: Detectar el uso sugerido ANTES del RLVM, para que el cálculo
+  // financiero respete el COS y la clasificación de la propuesta territorial.
+  updateAnalysisStatus("Consultando uso sugerido según análisis territorial ABC...");
+  try{
+    result.uso_sugerido=await obtenerUsoSugerido();
+    window._usoSugeridoActual=result.uso_sugerido; // disponible para computeRLVM
+    if(result.uso_sugerido){
+      console.log('[Uso sugerido] Zona detectada:',result.uso_sugerido.uso_principal,'('+result.uso_sugerido.cod_zonif+') COS:'+result.uso_sugerido.cos_total+' clasif:'+result.uso_sugerido.clasificacion);
+    }
+  }catch(e){console.warn('uso_sugerido:',e);result.uso_sugerido=null;window._usoSugeridoActual=null;}
+  // Step 3: Fetch real market data and compute RLVM (ya con el uso sugerido disponible)
   updateAnalysisStatus("Consultando datos de mercado en tiempo real...");
   var rlvm=await fetchRLVMData(result.score);
   result.rlvm=rlvm;
@@ -4841,14 +4871,6 @@ async function runFullAnalysis(){
     var prov=(ACTIVE_LAND&&ACTIVE_LAND.province)?ACTIVE_LAND.province:'';
     result.afectacion=await detectarAfectacion(geomLote,prov);
   }catch(e){console.warn('afectacion:',e);result.afectacion={afectado:false,conflictos:[]};}
-  // VF80: Uso sugerido según la propuesta territorial de ABC (por ubicación)
-  updateAnalysisStatus("Consultando uso sugerido según análisis territorial ABC...");
-  try{
-    result.uso_sugerido=await obtenerUsoSugerido();
-    if(result.uso_sugerido){
-      console.log('[Uso sugerido] Zona detectada:',result.uso_sugerido.uso_principal,'('+result.uso_sugerido.cod_zonif+')');
-    }
-  }catch(e){console.warn('uso_sugerido:',e);result.uso_sugerido=null;}
   WLC_RESULT=result;
   return result;
 }
@@ -6206,6 +6228,7 @@ var ABC_TRAZABILIDAD={
   'normativa':        {fuente:'Propuesta ABC (Ley 368-22, 176-07)',anio:'2025',tipo:'Criterio normativo propio',confianza:'Referencial'},
   'riesgo_ambiental': {fuente:'COE / INDRHI / SGN',anio:'2023',tipo:'Amenazas naturales',confianza:'Media'},
   'area_protegida':   {fuente:'MIMARENA (SINAP)',anio:'2024',tipo:'Áreas protegidas oficiales',confianza:'Alta'},
+  'turismo':          {fuente:'MITUR / INFRATUR',anio:'2024',tipo:'Polos y zonas turísticas',confianza:'Alta'},
   // Capas GIS opcionales (por dimensión)
   'suelo':            {fuente:'Ministerio de Agricultura',anio:'2022',tipo:'Capacidad agrológica',confianza:'Media'},
   'demografia':       {fuente:'ONE (Censo 2022)',anio:'2022',tipo:'Densidad poblacional',confianza:'Alta'},
@@ -6214,14 +6237,15 @@ var ABC_TRAZABILIDAD={
 };
 // Mapeo secundario por palabra clave del label (respaldo si el id no coincide)
 var ABC_TRAZA_KEYWORDS=[
-  {kw:['vía','vial','accesib','carretera','movilidad'],traza:'accesibilidad'},
-  {kw:['comercial','entorno'],traza:'entorno_comercial'},
+  {kw:['vía','vias','vial','accesib','carretera','movilidad'],traza:'accesibilidad'},
+  {kw:['comercial','entorno','zonas comerc'],traza:'entorno_comercial'},
   {kw:['servicio','básico','basico','infraestructura','agua','luz','eléctric'],traza:'servicios_basicos'},
-  {kw:['mercado','valor','precio','económic'],traza:'mercado'},
-  {kw:['normativa','uso suelo','zonificación','densidad'],traza:'normativa'},
-  {kw:['riesgo','inund'],traza:'riesgo_ambiental'},
-  {kw:['proteg','sinap','ambiental','conservación'],traza:'area_protegida'},
-  {kw:['pendiente','clase','agrológic'],traza:'suelo'},
+  {kw:['mercado','valor referenc','precio','económic'],traza:'mercado'},
+  {kw:['hotel','turis','turístic','polo turis','atractivo','playa'],traza:'turismo'},
+  {kw:['normativa','uso suelo','zonificación','densidad','retiro','parqueo','calidad'],traza:'normativa'},
+  {kw:['riesgo','inund','pendiente','falla','vulnerable','sísmic','sismic','huracán','huracan'],traza:'riesgo_ambiental'},
+  {kw:['proteg','sinap','área protegida','area protegida','conservación','humedal'],traza:'area_protegida'},
+  {kw:['clase de suelo','agrológic','agrologic','capacidad agr'],traza:'suelo'},
   {kw:['población','poblacion','densidad poblac','demograf'],traza:'demografia'},
   {kw:['huella','construida','cobertura'],traza:'urbanizacion'}
 ];
@@ -6337,7 +6361,9 @@ function verCertificado(){
   var _afCrit=(r.afectacion&&r.afectacion.afectado&&r.afectacion.maxSeveridad==='critica');
   var _afCond=(r.afectacion&&r.afectacion.afectado&&r.afectacion.maxSeveridad==='condicionada');
   var scColor=_afCrit?'#C0392B':(_afCond?'#E67E22':(r.score>=75?'#1565C0':r.score>=55?'#F39C12':'#E74C3C'));
-  var scLabel=_afCrit?'RESTRINGIDO POR ÁREA PROTEGIDA':(_afCond?'APTO CONDICIONADO':(r.score>=75?'TERRENO APTO':r.score>=55?'APTO CONDICIONAL':'NO APTO'));
+  // VF83: usar el mismo sistema de rangos que el veredicto (coherencia total)
+  var _rangoBadge=(typeof _rangoVeredicto==='function')?_rangoVeredicto(r.score):{etiqueta:r.score>=75?'POTENCIAL ALTO':r.score>=55?'POTENCIAL CONDICIONADO':'NO RECOMENDABLE'};
+  var scLabel=_afCrit?'RESTRINGIDO POR ÁREA PROTEGIDA':(_afCond?'CONDICIONADO POR AMORTIGUAMIENTO':_rangoBadge.etiqueta);
   var css='body{font-family:Arial,sans-serif;font-size:11pt;color:#111;padding:24px;background:white;line-height:1.5}'
     +'h1{color:#1565C0;font-size:16pt;margin:0 0 4px}'
     +'h2{color:#1565C0;font-size:12pt;border-bottom:2px solid #1565C0;padding-bottom:4px;margin-top:18px;page-break-after:avoid;break-after:avoid}'
@@ -6507,7 +6533,7 @@ function verCertificado(){
       '<p style="font-size:10pt;color:#444;margin-bottom:8px"><em>Fórmula: VRS = VDP − CC − CF − MD − RR</em></p>'+
       '<table>'+
         '<tr><th>Componente</th><th>Descripción</th><th style="text-align:right">Valor (USD)</th></tr>'+
-        '<tr><td><strong>VDP</strong></td><td>Valor del Desarrollo Completado ('+r.rlvm.area_construida.toLocaleString()+' m² × US$'+r.rlvm.precio_venta_m2+'/m²)</td><td style="text-align:right">'+r.rlvm.VDP.toLocaleString()+'</td></tr>'+
+        '<tr><td><strong>VDP</strong></td><td>Valor del Desarrollo Completado ('+r.rlvm.area_construida.toLocaleString()+' m² <em>construibles</em> × US$'+r.rlvm.precio_venta_m2+'/m²'+(r.rlvm.ratio_construccion?' · edificabilidad '+Math.round(r.rlvm.ratio_construccion*100)+'% del lote':'')+')</td><td style="text-align:right">'+r.rlvm.VDP.toLocaleString()+'</td></tr>'+
         '<tr style="color:#c0392b"><td>− CC</td><td>Costos de Construcción (directo US$'+r.rlvm.costo_construccion_m2+'/m² + 15% indirecto)</td><td style="text-align:right">−'+r.rlvm.CC.toLocaleString()+'</td></tr>'+
         '<tr style="color:#c0392b"><td>− CF</td><td>Costos Financieros ('+Math.round(r.rlvm.tasa_interes*100)+'% anual · '+r.rlvm.meses_construccion+' meses construcción)</td><td style="text-align:right">−'+r.rlvm.CF.toLocaleString()+'</td></tr>'+
         '<tr style="color:#c0392b"><td>− MD</td><td>Margen del Desarrollador ('+Math.round(r.rlvm.margen_desarrollador*100)+'% sobre VDP)</td><td style="text-align:right">−'+r.rlvm.MD.toLocaleString()+'</td></tr>'+
@@ -6647,6 +6673,10 @@ function verCertificado(){
         recomendacion='El equipo técnico de ABC Territorial Intelligence NO recomienda el desarrollo convencional de '+(_ld.name||'el terreno')+' debido a que intersecta un área protegida ('+nombresAfect+(afectPct>0?', afectando ~'+afectPct+'% del lote':'')+'). El desarrollo residencial, comercial o turístico convencional está severamente restringido o prohibido por ley en estas zonas. Las únicas alternativas viables son usos compatibles con la conservación (ecoturismo de bajo impacto, parque ecológico, investigación), y siempre sujetas a autorización expresa de MIMARENA. Antes de cualquier transacción, es indispensable validar los límites oficiales del área protegida con MIMARENA y la Dirección de Catastro. El valor de desarrollo proyectado abajo es referencial y NO aplica mientras persista la restricción ambiental.'
       } else if(afectCondicionada){
         recomendacion='El equipo técnico de ABC Territorial Intelligence recomienda PRECAUCIÓN para '+(_ld.name||'el terreno')+'. El lote se ubica en una zona de amortiguamiento de área protegida, donde el desarrollo es posible pero condicionado a usos de baja intensidad y autorización ambiental previa de MIMARENA. Se recomienda un estudio de impacto ambiental antes de avanzar.'
+      } else if(r.uso_sugerido && r.uso_sugerido.clasificacion && r.uso_sugerido.clasificacion.toLowerCase().indexOf('no urbanizable')>=0){
+        // VF83: la propuesta territorial ABC marca la zona como NO urbanizable
+        var _usoNom=r.uso_sugerido.uso_principal||'uso de conservación/agropecuario';
+        recomendacion='El equipo técnico de ABC Territorial Intelligence recomienda ORIENTAR el aprovechamiento de '+(_ld.name||'el terreno')+' ('+area+', '+prov+') hacia usos compatibles con su clasificación territorial. Según el análisis territorial de ABC, esta zona está clasificada como <strong>suelo no urbanizable</strong> con uso sugerido <strong>'+_usoNom+'</strong>, lo que limita significativamente el desarrollo inmobiliario convencional. Las cifras de desarrollo mostradas son un ejercicio teórico de máximo potencial y NO deben interpretarse como recomendación de construir intensivamente. Se recomienda: (1) confirmar la clasificación de uso de suelo ante el ayuntamiento y el ordenamiento territorial vigente; (2) orientar el proyecto hacia usos de baja intensidad coherentes con la vocación de la zona ('+_usoNom+'); (3) validar cualquier cambio de uso ante las autoridades competentes antes de invertir.'
       } else {
         recomendacion=sc>=75
         ?'El equipo técnico de ABC Territorial Intelligence recomienda PROCEDER con la estructuración del proyecto '+(_ld.name||'indicado')+'.'+vrsTexto+', el terreno de '+area+' en '+prov+' cumple con los criterios de idoneidad territorial y presenta condiciones favorables para su publicación en el Marketplace de Inversión ABC. Próximos pasos: subir título de propiedad, plano catastral certificado y mínimo 3 fotografías del inmueble.'
