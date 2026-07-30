@@ -136,7 +136,7 @@ function instalarApp(){
 }
 </script>
 </head>
-<!-- VERSION-DEPLOY: VF87 — Ventajas de suelo no urbanizable reformuladas desde la optica del propietario (no del comprador) -->
+<!-- VERSION-DEPLOY: VF88 — Tabla de parametros urbanisticos con columna de justificacion tecnico-legal (marco Ley 368-22 / MEPyD) -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -6684,23 +6684,24 @@ function verCertificado(){
       var us=r.uso_sugerido;
       if(!us||!us.uso_principal)return '';
       var params=[];
-      if(us.clasificacion)params.push(['Clasificación de suelo',us.clasificacion]);
-      if(us.calificacion)params.push(['Calificación',us.calificacion]);
-      if(us.num_pisos!=null&&us.num_pisos!=='')params.push(['Pisos máximos',us.num_pisos]);
-      if(us.altura_edif!=null&&us.altura_edif!=='')params.push(['Altura máxima',us.altura_edif+' m']);
-      if(us.cos_total!=null&&us.cos_total!=='')params.push(['COS total',us.cos_total+'%']);
-      if(us.lote_min!=null&&us.lote_min!=='')params.push(['Lote mínimo',Number(us.lote_min).toLocaleString()+' m²']);
-      if(us.frente_min!=null&&us.frente_min!=='')params.push(['Frente mínimo',us.frente_min+' m']);
-      if(us.ret_frontal!=null&&us.ret_frontal!=='')params.push(['Retiro frontal',us.ret_frontal+' m']);
-      if(us.cod_zonif)params.push(['Código de zonificación',us.cod_zonif]);
-      if(us.pit)params.push(['Unidad territorial (PIT)',us.pit]);
-      var filas=params.map(function(p){return '<tr><td>'+p[0]+'</td><td><strong>'+p[1]+'</strong></td></tr>';}).join('');
+      // Cada parámetro con su justificación técnico-legal (marco Ley 368-22 y metodología MEPyD)
+      if(us.clasificacion)params.push(['Clasificación de suelo',us.clasificacion,'Categoría base del suelo según la Ley 368-22 (Art. 33): urbano, urbanizable o no urbanizable. Determina el régimen de usos permitidos.']);
+      if(us.calificacion)params.push(['Calificación',us.calificacion,'Actividad predominante asignada al suelo conforme a la clasificación de usos de la Ley 368-22 y la metodología de relevamiento del MEPyD.']);
+      if(us.num_pisos!=null&&us.num_pisos!=='')params.push(['Pisos máximos',us.num_pisos,'Límite de altura en niveles para preservar la escala, el paisaje y la vocación de la zona. En suelo no urbanizable se restringe para evitar densificación incompatible.']);
+      if(us.altura_edif!=null&&us.altura_edif!=='')params.push(['Altura máxima',us.altura_edif+' m','Altura máxima de edificación coherente con los pisos permitidos, la seguridad estructural y la integración con el entorno.']);
+      if(us.cos_total!=null&&us.cos_total!=='')params.push(['COS total',us.cos_total+'%','Coeficiente de Ocupación del Suelo: proporción máxima edificable del lote. Regula la densidad y preserva áreas permeables. Un COS bajo protege la vocación agrícola/ambiental del suelo.']);
+      if(us.lote_min!=null&&us.lote_min!=='')params.push(['Lote mínimo',Number(us.lote_min).toLocaleString()+' m²','Superficie mínima de parcela que garantiza la vocación del suelo. En suelo no urbanizable (Art. 36) evita la fragmentación y sostiene el uso productivo agropecuario o forestal.']);
+      if(us.frente_min!=null&&us.frente_min!=='')params.push(['Frente mínimo',us.frente_min+' m','Ancho mínimo de la parcela hacia la vía, para garantizar acceso, servicios e integración con la trama.']);
+      if(us.ret_frontal!=null&&us.ret_frontal!=='')params.push(['Retiro frontal',us.ret_frontal+' m','Distancia mínima entre la edificación y el lindero frontal, por seguridad vial, ventilación, iluminación y armonía urbana/paisajística.']);
+      if(us.cod_zonif)params.push(['Código de zonificación',us.cod_zonif,'Código interno de la propuesta territorial ABC que sintetiza la clasificación, uso y parámetros asignados a la zona.']);
+      if(us.pit)params.push(['Unidad territorial (PIT)',us.pit,'Unidad de planificación territorial en que se divide el distrito para el análisis y la asignación normativa homogénea.']);
+      var filas=params.map(function(p){return '<tr><td>'+p[0]+'</td><td><strong>'+p[1]+'</strong></td><td style="font-size:8pt;color:#555;line-height:1.5">'+(p[2]||'')+'</td></tr>';}).join('');
       return '<h2>Uso Sugerido según Análisis Territorial ABC</h2>'
         +'<div style="background:#eef4fb;border-left:4px solid #1565C0;padding:12px 14px;margin-bottom:10px;border-radius:4px">'
           +'<p style="font-size:10pt;margin-bottom:6px">De acuerdo con el análisis territorial realizado por ABC para Verón–Punta Cana, la ubicación del terreno corresponde a una zona con uso sugerido: <strong style="color:#1565C0;font-size:11pt">'+us.uso_principal+'</strong>.</p>'
           +'<p style="font-size:8.5pt;color:#666;font-style:italic;margin:0">⚠ Importante: este uso y sus parámetros son una <strong>propuesta técnica del equipo ABC</strong> basada en el análisis del territorio. <strong>No constituyen zonificación oficial vigente</strong> ni sustituyen la certificación de uso de suelo del ayuntamiento o el ordenamiento territorial oficial. Deben validarse ante las autoridades competentes.</p>'
         +'</div>'
-        +(filas?'<table><thead><tr><th>Parámetro urbanístico sugerido</th><th>Valor</th></tr></thead><tbody>'+filas+'</tbody></table>':'')
+        +(filas?'<table><thead><tr><th style="width:22%">Parámetro urbanístico sugerido</th><th style="width:18%">Valor</th><th>Justificación técnico-legal</th></tr></thead><tbody>'+filas+'</tbody></table>':'')
         +'<p style="font-size:8.5pt;color:#888;margin-top:6px">Fuente: '+(us.fuente||'Propuesta territorial ABC')+'. Parámetros orientativos sujetos a validación normativa.</p>';
     })()+
     _seccionOportunidadesNoUrb(r)+
