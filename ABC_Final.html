@@ -136,7 +136,7 @@ function instalarApp(){
 }
 </script>
 </head>
-<!-- VERSION-DEPLOY: VF92 — Reporte detallado: programa arquitectonico respeta COS/uso sugerido; usos no edificatorios muestran programa de ocupacion -->
+<!-- VERSION-DEPLOY: VF94 — Explorador de oportunidades lee proyectos reales de Supabase (antes mostraba lista demo); muestra fotos -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -667,17 +667,46 @@ function startAnalysis(){
   },600);
 }
 
-function rMarketplace(){
-  document.getElementById("content").innerHTML=`
+async function rMarketplace(){
+  var con=document.getElementById("content");
+  con.innerHTML='<div style="text-align:center;padding:40px;color:'+C.tm+'">Cargando oportunidades...</div>';
+  // VF94: leer los proyectos reales publicados desde Supabase (no la lista demo)
+  var reales=[];
+  try{
+    if(typeof SUPA!=='undefined'){
+      var r=await SUPA.from('opportunities').select('*').eq('active',true).order('created_at',{ascending:false});
+      if(!r.error&&r.data)reales=r.data;
+    }
+  }catch(e){console.warn('marketplace load:',e);}
+
+  // KPIs dinámicos según los proyectos reales (con respaldo si no hay)
+  var nOpps=reales.length;
+  var kpiOpps=nOpps>0?String(nOpps):'—';
+
+  var cards='';
+  if(reales.length>0){
+    cards=reales.map(function(o,i){
+      var ti=o.titulo||o.ti||'Oportunidad';
+      var ty=o.tipo||o.ty||'Proyecto';
+      var inv=o.inversion_minima||o.inv||'A consultar';
+      var roi=o.roi||'—';
+      // Si el proyecto tiene foto, usarla como fondo de la tarjeta
+      var bg=o.photo_url?('url('+o.photo_url+') center/cover no-repeat'):undefined;
+      return pcard(i+1,ti,ty,inv,roi,undefined,bg,"Solicitar acceso →");
+    }).join("");
+  } else {
+    cards='<div style="grid-column:1/-1;text-align:center;padding:40px;background:'+C.card+';border:1px dashed '+C.bo+';border-radius:13px;color:'+C.tm+'">Aún no hay oportunidades publicadas. Las oportunidades validadas por ABC aparecerán aquí.</div>';
+  }
+
+  con.innerHTML=`
 <div class="fa" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:14px">
-  ${kpi("Oportunidades activas","12","Proyectos verificados",C.bll,"💼")}
-  ${kpi("Capital objetivo","$18.5M","Total plataforma",C.gr,"💰")}
-  ${kpi("Retorno promedio","16.2%","TIR anual estimado",C.go,"📈")}
-  ${kpi("Inversionistas activos","47","Calificados y verificados",C.te,"👥")}
+  ${kpi("Oportunidades activas",kpiOpps,"Proyectos publicados",C.bll,"💼")}
+  ${kpi("Capital objetivo","A consultar","Total plataforma",C.gr,"💰")}
+  ${kpi("Retorno promedio","Variable","Según proyecto",C.go,"📈")}
+  ${kpi("Verificación","ABC","Proyectos validados",C.te,"👥")}
 </div>
-<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">
-  ${OPPS.map((o,i)=>pcard(i+1,o.ti,o.ty,o.inv,o.roi,undefined,undefined,"Solicitar acceso →")).join("")}
-</div>`;}
+<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">${cards}</div>`;
+}
 
 // ═══════════════════════════════════════════════════════════
 // DIAGNÓSTICO DE CAPAS (VF64) — ejecutar en consola: diagnosticarCapas()
@@ -1261,10 +1290,13 @@ function renderOppsAdmin(opps){
       +'<div><div style="font-size:9px;color:#8FA5BE">Inversion min.</div><div style="font-size:12px;font-weight:700;color:#E8EDF3">'+inv+'</div></div>'
       +'<div style="text-align:right"><div style="font-size:9px;color:#8FA5BE">ROI est.</div><div style="font-size:12px;font-weight:700;color:#2ECC71">'+roi+'</div></div>'
       +'</div>'
-      +'<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px">'
+      +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-bottom:4px">'
       +'<button data-id="'+(o.id||'')+'" class="opp-upload-btn" style="background:rgba(21,101,192,.15);border:1px solid rgba(21,101,192,.3);color:#42A5F5;padding:6px 4px;border-radius:6px;font-size:10px;cursor:pointer">Cargar fotos</button>'
       +'<button data-id="'+(o.id||'')+'" data-title="'+title.replace(/"/g,'&quot;')+'" data-inv="'+inv+'" data-roi="'+roi+'" data-tipo="'+tipo+'" class="opp-config-btn" style="background:rgba(242,201,76,.1);border:1px solid rgba(242,201,76,.3);color:#F2C94C;padding:6px 4px;border-radius:6px;font-size:10px;cursor:pointer">Configurar</button>'
+      +'</div>'
+      +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px">'
       +'<button data-id="'+(o.id||'')+'" data-st="'+st+'" class="opp-manage-btn" style="background:rgba(46,204,113,.1);border:1px solid rgba(46,204,113,.3);color:#2ECC71;padding:6px 4px;border-radius:6px;font-size:10px;cursor:pointer">Gestionar</button>'
+      +'<button data-id="'+(o.id||'')+'" data-title="'+title.replace(/"/g,'&quot;')+'" class="opp-delete-btn" style="background:rgba(231,76,60,.1);border:1px solid rgba(231,76,60,.3);color:#E74C3C;padding:6px 4px;border-radius:6px;font-size:10px;cursor:pointer">Eliminar</button>'
       +'</div></div></div>';
   }).join('');
 
@@ -1277,6 +1309,8 @@ function renderOppsAdmin(opps){
     if(cb){configOpp(cb.dataset.id,cb.dataset.title,cb.dataset.inv,cb.dataset.roi,cb.dataset.tipo);return;}
     var mb=e.target.closest('.opp-manage-btn');
     if(mb){manageOppStatus(mb.dataset.id,mb.dataset.st);return;}
+    var db=e.target.closest('.opp-delete-btn');
+    if(db){eliminarOpp(db.dataset.id,db.dataset.title);return;}
   });
 }
 
@@ -1322,6 +1356,24 @@ function configOpp(id,title,inv,roi,tipo){
   var newRoi=prompt('ROI estimado:',roi);
   SUPA.from('opportunities').update({titulo:newTitle,inversion_minima:newInv||inv,roi:newRoi||roi}).eq('id',id)
     .then(function(){alert('Oportunidad actualizada.');rOpps();});
+}
+
+async function eliminarOpp(id,titulo){
+  if(!confirm('¿Eliminar la oportunidad "'+(titulo||'')+'" del marketplace?\n\nEsta acción no se puede deshacer.'))return;
+  try{
+    if(typeof SUPA==='undefined'){alert('Sin conexión al servidor.');return;}
+    var del=await SUPA.from('opportunities').delete().eq('id',id).select();
+    if(del.error)throw del.error;
+    if(!del.data||del.data.length===0){
+      alert('No se eliminó la oportunidad. Es posible que falten permisos (RLS) en la tabla opportunities de Supabase. Revisa las políticas de DELETE.');
+      return;
+    }
+    alert('✓ Oportunidad eliminada.');
+    rOpps();
+  }catch(e){
+    console.error('eliminarOpp:',e);
+    alert('No se pudo eliminar: '+(e.message||'error')+'\n\nSi menciona permisos o RLS, la tabla opportunities necesita una política de DELETE en Supabase.');
+  }
 }
 
 async function manageOppStatus(id,currentStatus){
