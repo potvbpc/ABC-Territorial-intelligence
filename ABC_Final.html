@@ -136,7 +136,7 @@ function instalarApp(){
 }
 </script>
 </head>
-<!-- VERSION-DEPLOY: VF85 — Modulo de oportunidades para suelo no urbanizable: usos legales 368-22 + incentivos fiscales + ventajas competitivas -->
+<!-- VERSION-DEPLOY: VF86 — Uso sugerido se autollena segun ubicacion del poligono (editable); etiqueta sin "oficial" -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -1967,8 +1967,9 @@ function rUpload(){
         <datalist id="mun-datalist"></datalist>
       </div>
       <div>
-        <div style="font-size:9px;color:${C.tm};font-weight:600;text-transform:uppercase;letter-spacing:.08em;margin-bottom:5px">Uso cartográfico / oficial</div>
+        <div style="font-size:9px;color:${C.tm};font-weight:600;text-transform:uppercase;letter-spacing:.08em;margin-bottom:5px">Uso sugerido según ubicación</div>
         <select class="inp" id="land-uso"><option>Residencial unifamiliar</option><option>Residencial multifamiliar</option><option>Vivienda social</option><option>Comercial local</option><option>Comercial mixto</option><option>Centros comerciales</option><option>Oficinas y servicios</option><option>Servicios financieros</option><option>Restaurantes y entretenimiento</option><option>Industrial ligera</option><option>Industrial mediana</option><option>Agroindustrial</option><option>Turístico hotelero</option><option>Turístico recreativo</option><option>Ecoturismo</option><option>Villas turísticas</option><option>Equipamiento educativo</option><option>Equipamiento de salud</option><option>Equipamiento cultural</option><option>Equipamiento deportivo</option><option>Equipamiento comunitario</option><option>Equipamiento administrativo</option><option>Equipamiento de seguridad</option><option>Recreativo y espacio público</option><option>Parques y áreas verdes</option><option>Infraestructura vial</option><option>Infraestructura energética</option><option>Infraestructura hidráulica</option><option>Telecomunicaciones</option><option>Agropecuario</option><option>Forestal</option><option>Conservación ambiental</option><option>Protección ecológica</option><option>Corredores ecológicos</option><option>Uso extractivo minero</option><option>Canteras y extracción de agregados</option><option>Uso mixto residencial-comercial</option><option>Uso mixto turístico-comercial</option><option>Uso mixto residencial-servicios</option></select>
+        <div id="land-uso-auto" style="font-size:9px;color:#4FC3F7;margin-top:5px;line-height:1.5;display:none"></div>
       </div>
     </div>
     <div style="background:rgba(242,201,76,.06);border:1px solid rgba(242,201,76,.2);border-radius:8px;padding:11px 13px;margin-bottom:12px">
@@ -2230,6 +2231,8 @@ function processGeoFile(file){
           window._loadedGeoJSON={type:'Polygon',coordinates:[UP_POINTS]};
           var areaM2=calcAreaM2(UP_POINTS);
           window._loadedArea=Math.round(areaM2);
+          // VF86: autollenar el uso sugerido según la ubicación del polígono
+          _autollenarUsoSugerido(window._loadedGeoJSON);
           var aInp=document.getElementById('land-area');if(aInp){aInp.value=Math.round(areaM2);aInp.dataset.fromFile='1';}
           if(status)status.innerHTML='<div style="background:rgba(46,204,113,.1);border:1px solid rgba(46,204,113,.3);border-radius:8px;padding:11px 14px;font-size:12px;color:#2ECC71">✅ <strong>'+file.name+'</strong> cargado · Área calculada: <strong>'+Math.round(areaM2).toLocaleString()+' m²</strong> · '+(UP_POINTS.length-1)+' vértices · Listo para registrar</div>';
           status.style.display='block';
@@ -3529,6 +3532,12 @@ function initUploadMap(id){
         if(cnt)cnt.innerHTML='<span style="color:#2ECC71;font-weight:700">'+UP_POINTS.length+' puntos · '+Math.round(areaM2).toLocaleString()+' m²</span>';
         var aInp=document.getElementById('land-area');if(aInp&&!aInp.dataset.manual)aInp.value=Math.round(areaM2);
         var info=document.getElementById('map-poly-info');if(info)info.innerHTML='✅ Polígono: '+Math.round(areaM2).toLocaleString()+' m² · '+UP_POINTS.length+' vértices';
+        // VF86: autollenar uso sugerido (debounce: espera 1.2s tras el último clic)
+        if(window._autollenarTimer)clearTimeout(window._autollenarTimer);
+        window._autollenarTimer=setTimeout(function(){
+          var g={type:'Polygon',coordinates:[[...UP_POINTS,UP_POINTS[0]]]};
+          _autollenarUsoSugerido(g);
+        },1200);
       }else{
         if(cnt)cnt.textContent=UP_POINTS.length+' puntos';
       }
@@ -3991,10 +4000,10 @@ var GEO_USOS_CACHE=null;
 // y devuelve el uso sugerido + parámetros urbanísticos.
 // NOTA: es una propuesta técnica del equipo ABC, NO zonificación oficial.
 // ════════════════════════════════════════════════════════════════
-async function obtenerUsoSugerido(){
+async function obtenerUsoSugerido(geomOverride){
   try{
     if(window._turfFailed||typeof turf==='undefined')return null;
-    var geomLote=(ACTIVE_LAND&&ACTIVE_LAND.geojson)?ACTIVE_LAND.geojson:null;
+    var geomLote=geomOverride||((ACTIVE_LAND&&ACTIVE_LAND.geojson)?ACTIVE_LAND.geojson:null);
     if(!geomLote||!geomLote.coordinates)return null;
 
     // Cargar capa(s) de uso sugerido (cache)
@@ -4053,6 +4062,61 @@ async function obtenerUsoSugerido(){
     }
     return null;
   }catch(e){console.warn('obtenerUsoSugerido:',e);return null;}
+}
+
+// VF86: Autollenar el campo 'Uso sugerido' del formulario según la ubicación
+// Mapea el uso de la capa territorial a la opción más cercana del <select>.
+function _mapearUsoASelect(usoPrinc){
+  if(!usoPrinc)return null;
+  var u=usoPrinc.toLowerCase();
+  // Mapeo de los usos de la capa a las opciones del <select> land-uso
+  if(/cultivo|pastos|forraje|agropecuar|agr[íi]cola/.test(u))return 'Agropecuario';
+  if(/bosque|forestal|silvicultura/.test(u))return 'Forestal';
+  if(/protecci[óo]n y conservaci|conservaci|h[áa]bitat|monumento natural|paisaje protegido|ecosistema/.test(u))return 'Conservación ambiental';
+  if(/protecci[óo]n de riesgo/.test(u))return 'Protección ecológica';
+  if(/miner[íi]a|cantera|extractivo/.test(u))return 'Uso extractivo minero';
+  if(/residencial/.test(u))return 'Residencial unifamiliar';
+  if(/mixto/.test(u))return 'Uso mixto residencial-comercial';
+  if(/tur[íi]stico/.test(u))return 'Turístico hotelero';
+  if(/comercial/.test(u))return 'Comercial mixto';
+  if(/industrial/.test(u))return 'Industrial ligera';
+  if(/energ[íe]tic|energ[íi]a/.test(u))return 'Infraestructura energética';
+  if(/seguridad nacional/.test(u))return 'Equipamiento de seguridad';
+  return null; // sin mapeo claro
+}
+
+async function _autollenarUsoSugerido(geomOverride){
+  try{
+    var sel=document.getElementById('land-uso');
+    var aviso=document.getElementById('land-uso-auto');
+    if(!sel)return;
+    // Obtener el uso sugerido de la capa según la ubicación del polígono
+    // Si se pasa geomOverride (polígono del formulario), usarlo; si no, ACTIVE_LAND
+    var us=await obtenerUsoSugerido(geomOverride);
+    if(!us||!us.uso_principal){
+      if(aviso)aviso.style.display='none';
+      return;
+    }
+    var opcion=_mapearUsoASelect(us.uso_principal);
+    if(!opcion){
+      if(aviso)aviso.style.display='none';
+      return;
+    }
+    // Buscar y seleccionar la opción correspondiente
+    var encontrada=false;
+    for(var i=0;i<sel.options.length;i++){
+      if(sel.options[i].value===opcion||sel.options[i].text===opcion){
+        sel.selectedIndex=i;
+        encontrada=true;
+        break;
+      }
+    }
+    if(encontrada&&aviso){
+      var clasif=us.clasificacion?(' · '+us.clasificacion):'';
+      aviso.innerHTML='✓ Autocompletado según análisis territorial ABC: <strong>'+us.uso_principal+'</strong>'+clasif+' (puede cambiarlo si lo conoce con más precisión)';
+      aviso.style.display='block';
+    }
+  }catch(e){console.warn('autollenar uso:',e);}
 }
 
 var GEO_PRECIOS_CACHE=null;
