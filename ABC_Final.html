@@ -136,7 +136,7 @@ function instalarApp(){
 }
 </script>
 </head>
-<!-- VERSION-DEPLOY: VF86 — Uso sugerido se autollena segun ubicacion del poligono (editable); etiqueta sin "oficial" -->
+<!-- VERSION-DEPLOY: VF87 — Ventajas de suelo no urbanizable reformuladas desde la optica del propietario (no del comprador) -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -3937,11 +3937,11 @@ var ABC_USOS_NO_URBANIZABLE=[
 
 // Ventajas competitivas del suelo no urbanizable frente al urbano
 var ABC_VENTAJAS_NO_URB=[
-  {icon:'💰', t:'Menor costo de adquisición y mantenimiento', d:'El suelo no urbanizable tiene un valor de entrada mucho menor que el urbano, reduciendo la inversión inicial y el costo de oportunidad.'},
-  {icon:'🧾', t:'Carga impositiva más baja', d:'Los usos agrícolas y forestales suelen tener tratamiento fiscal más favorable que el desarrollo inmobiliario urbano.'},
-  {icon:'🌍', t:'Acceso a incentivos verdes exclusivos', d:'Leyes como la 57-07 (renovables), 290-85 (forestal) y 158-01 (ecoturismo) ofrecen exenciones que el suelo urbano convencional no puede aprovechar.'},
-  {icon:'🎯', t:'Demanda no cubierta en el ecosistema de Punta Cana', d:'Turismo de naturaleza, producto agro local para hoteles y energía renovable son mercados con demanda insatisfecha en la región.'},
-  {icon:'📈', t:'Revalorización a largo plazo', d:'Un terreno productivo y bien gestionado conserva y aumenta su valor, sin depender de un cambio de clasificación urbana.'}
+  {icon:'💸', t:'Menor carga anual de mantener la propiedad', d:'A diferencia del suelo urbano, mantener un terreno rural o agrícola implica menores costos anuales de impuestos, mantenimiento y vigilancia — usted conserva su patrimonio con una carga mucho más ligera.'},
+  {icon:'🧾', t:'Tratamiento fiscal más favorable', d:'Los usos agrícolas y forestales suelen tener un régimen tributario más favorable que el desarrollo inmobiliario urbano, dejando más margen para el propietario.'},
+  {icon:'🌍', t:'Acceso a incentivos verdes exclusivos', d:'Como propietario de este suelo, usted puede acogerse a exenciones de las Leyes 57-07 (renovables), 290-85 (forestal) y 158-01 (ecoturismo) que el suelo urbano convencional NO puede aprovechar.'},
+  {icon:'🎯', t:'Demanda no cubierta que usted puede capturar', d:'Turismo de naturaleza, producto agro local para hoteles y energía renovable son mercados con demanda insatisfecha en Punta Cana — oportunidades de ingreso que su terreno está bien posicionado para aprovechar.'},
+  {icon:'📈', t:'La plusvalía del desarrollo es suya', d:'Un terreno con un proyecto productivo encima (agroturismo, solar, agrícola de alto valor) vale mucho más que el suelo baldío. Esa revalorización la captura usted como propietario, sin depender de un cambio de clasificación urbana.'}
 ];
 
 function _seccionOportunidadesNoUrb(r){
@@ -3986,7 +3986,7 @@ function _seccionOportunidadesNoUrb(r){
     +'</div>'
     +'<h3 style="color:#1565C0;font-size:11pt;margin:14px 0 8px">Usos productivos permitidos por la ley</h3>'
     +opsHtml
-    +'<h3 style="color:#1565C0;font-size:11pt;margin:16px 0 8px">Ventajas competitivas frente al suelo urbano</h3>'
+    +'<h3 style="color:#1565C0;font-size:11pt;margin:16px 0 8px">Ventajas de ser propietario de este suelo</h3>'
     +'<table style="width:100%"><tbody>'+ventajasHtml+'</tbody></table>'
     +'<div style="background:#fff8e1;border:1px solid #ffd54f;border-radius:6px;padding:11px 14px;margin-top:12px">'
       +'<p style="font-size:8.5pt;color:#6d5a00;margin:0"><strong>⚠ Importante:</strong> Los usos e incentivos descritos son <strong>orientativos</strong> y se basan en la legislación vigente (Ley 368-22, Ley 57-07, Ley 290-85, Ley 158-01). Su aplicación concreta <strong>requiere calificación y autorización de las autoridades competentes</strong> (ayuntamiento, MEPyD, Ministerio de Medio Ambiente, CONFOTUR, Ministerio de Agricultura, según el caso). No constituyen asesoría legal ni garantía de aprobación. Se recomienda consultar con un profesional antes de invertir.</p>'
