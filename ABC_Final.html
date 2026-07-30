@@ -136,7 +136,7 @@ function instalarApp(){
 }
 </script>
 </head>
-<!-- VERSION-DEPLOY: VF79 — Fix: al subir nuevo terreno el mapa empieza limpio (no muestra el lote anterior) -->
+<!-- VERSION-DEPLOY: VF80 — Fase 1 usos sugeridos: el motor detecta el uso sugerido ABC segun ubicacion del terreno -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -3874,6 +3874,69 @@ var RD_MARKET={
 // Si no hay datos para la ubicación, devuelve null (se usa el modelo).
 // Degradación elegante: hoy RD no tiene esta data, pero queda listo.
 // ════════════════════════════════════════════════════════════════
+var GEO_USOS_CACHE=null;
+// ════════════════════════════════════════════════════════════════
+// USO SUGERIDO POR UBICACIÓN (VF80 — Fase 1)
+// Detecta en qué zona de la propuesta territorial ABC cae el terreno
+// y devuelve el uso sugerido + parámetros urbanísticos.
+// NOTA: es una propuesta técnica del equipo ABC, NO zonificación oficial.
+// ════════════════════════════════════════════════════════════════
+async function obtenerUsoSugerido(){
+  try{
+    if(window._turfFailed||typeof turf==='undefined')return null;
+    var geomLote=(ACTIVE_LAND&&ACTIVE_LAND.geojson)?ACTIVE_LAND.geojson:null;
+    if(!geomLote||!geomLote.coordinates)return null;
+
+    // Cargar capa(s) de uso_sugerido (cache)
+    if(GEO_USOS_CACHE===null){
+      if(typeof SUPA==='undefined')return null;
+      var r=await SUPA.from('geo_layers').select('id,name,dimension,features,source').eq('active',true).eq('dimension','uso_sugerido');
+      if(r.error){console.warn('uso_sugerido load:',r.error);GEO_USOS_CACHE=[];return null;}
+      GEO_USOS_CACHE=r.data||[];
+    }
+    if(!GEO_USOS_CACHE||GEO_USOS_CACHE.length===0)return null;
+
+    // Centroide del lote
+    var landPoly=geomToTurfPoly(geomLote.type?geomLote:{type:'Polygon',coordinates:geomLote.coordinates});
+    if(!landPoly)return null;
+    var centro=turf.centroid(landPoly);
+
+    // Buscar la zona que contiene el centroide
+    for(var i=0;i<GEO_USOS_CACHE.length;i++){
+      var capa=GEO_USOS_CACHE[i];
+      var fc=capa.features;
+      if(!fc||!fc.features)continue;
+      for(var j=0;j<fc.features.length;j++){
+        var f=fc.features[j];
+        if(!f.geometry)continue;
+        var zonaPoly=geomToTurfPoly(f.geometry);
+        if(!zonaPoly)continue;
+        try{
+          if(turf.booleanPointInPolygon(centro,zonaPoly)){
+            var p=f.properties||{};
+            return {
+              uso_principal: p.uso_princ||p.tipo_uso||null,
+              clasificacion: p.clas_suelo||null,
+              calificacion: p.calif_uso||null,
+              num_pisos: p.num_pisos!=null?p.num_pisos:null,
+              altura_edif: p.altu_edif!=null?p.altu_edif:null,
+              cos_pb: p.cos_pb!=null?p.cos_pb:null,
+              cos_total: p.cos_tot!=null?p.cos_tot:null,
+              lote_min: p.lote_min!=null?p.lote_min:null,
+              frente_min: p.frent_min!=null?p.frent_min:null,
+              ret_frontal: p.ret_front!=null?p.ret_front:null,
+              cod_zonif: p.cod_zonif||null,
+              pit: p.pit||null,
+              fuente: capa.source||'Propuesta territorial ABC'
+            };
+          }
+        }catch(e){}
+      }
+    }
+    return null;
+  }catch(e){console.warn('obtenerUsoSugerido:',e);return null;}
+}
+
 var GEO_PRECIOS_CACHE=null;
 async function obtenerPrecioGeoespacial(){
   try{
@@ -4770,6 +4833,14 @@ async function runFullAnalysis(){
     var prov=(ACTIVE_LAND&&ACTIVE_LAND.province)?ACTIVE_LAND.province:'';
     result.afectacion=await detectarAfectacion(geomLote,prov);
   }catch(e){console.warn('afectacion:',e);result.afectacion={afectado:false,conflictos:[]};}
+  // VF80: Uso sugerido según la propuesta territorial de ABC (por ubicación)
+  updateAnalysisStatus("Consultando uso sugerido según análisis territorial ABC...");
+  try{
+    result.uso_sugerido=await obtenerUsoSugerido();
+    if(result.uso_sugerido){
+      console.log('[Uso sugerido] Zona detectada:',result.uso_sugerido.uso_principal,'('+result.uso_sugerido.cod_zonif+')');
+    }
+  }catch(e){console.warn('uso_sugerido:',e);result.uso_sugerido=null;}
   WLC_RESULT=result;
   return result;
 }
@@ -6349,6 +6420,30 @@ function verCertificado(){
     r.breakdown.map(function(l){return'<tr><td>'+l.icon+' '+l.label+'</td><td>'+l.xi+'/100</td><td>'+l.wi+'%</td><td>'+l.contribution+' pts</td><td>'+(r.metrics_detail[l.id]?r.metrics_detail[l.id].desc:'—')+'</td></tr>';}).join('')+
     '</tbody></table>'+
     _tablaTrazabilidad(r)+
+    (function(){
+      // VF80: Bloque de uso sugerido según la propuesta territorial ABC
+      var us=r.uso_sugerido;
+      if(!us||!us.uso_principal)return '';
+      var params=[];
+      if(us.clasificacion)params.push(['Clasificación de suelo',us.clasificacion]);
+      if(us.calificacion)params.push(['Calificación',us.calificacion]);
+      if(us.num_pisos!=null&&us.num_pisos!=='')params.push(['Pisos máximos',us.num_pisos]);
+      if(us.altura_edif!=null&&us.altura_edif!=='')params.push(['Altura máxima',us.altura_edif+' m']);
+      if(us.cos_total!=null&&us.cos_total!=='')params.push(['COS total',us.cos_total+'%']);
+      if(us.lote_min!=null&&us.lote_min!=='')params.push(['Lote mínimo',Number(us.lote_min).toLocaleString()+' m²']);
+      if(us.frente_min!=null&&us.frente_min!=='')params.push(['Frente mínimo',us.frente_min+' m']);
+      if(us.ret_frontal!=null&&us.ret_frontal!=='')params.push(['Retiro frontal',us.ret_frontal+' m']);
+      if(us.cod_zonif)params.push(['Código de zonificación',us.cod_zonif]);
+      if(us.pit)params.push(['Unidad territorial (PIT)',us.pit]);
+      var filas=params.map(function(p){return '<tr><td>'+p[0]+'</td><td><strong>'+p[1]+'</strong></td></tr>';}).join('');
+      return '<h2>Uso Sugerido según Análisis Territorial ABC</h2>'
+        +'<div style="background:#eef4fb;border-left:4px solid #1565C0;padding:12px 14px;margin-bottom:10px;border-radius:4px">'
+          +'<p style="font-size:10pt;margin-bottom:6px">De acuerdo con el análisis territorial realizado por ABC para Verón–Punta Cana, la ubicación del terreno corresponde a una zona con uso sugerido: <strong style="color:#1565C0;font-size:11pt">'+us.uso_principal+'</strong>.</p>'
+          +'<p style="font-size:8.5pt;color:#666;font-style:italic;margin:0">⚠ Importante: este uso y sus parámetros son una <strong>propuesta técnica del equipo ABC</strong> basada en el análisis del territorio. <strong>No constituyen zonificación oficial vigente</strong> ni sustituyen la certificación de uso de suelo del ayuntamiento o el ordenamiento territorial oficial. Deben validarse ante las autoridades competentes.</p>'
+        +'</div>'
+        +(filas?'<table><thead><tr><th>Parámetro urbanístico sugerido</th><th>Valor</th></tr></thead><tbody>'+filas+'</tbody></table>':'')
+        +'<p style="font-size:8.5pt;color:#888;margin-top:6px">Fuente: '+(us.fuente||'Propuesta territorial ABC')+'. Parámetros orientativos sujetos a validación normativa.</p>';
+    })()+
     (r.restrictions.length>0?'<h2>Restricciones</h2><ul>'+r.restrictions.map(function(x){return'<li>'+x+'</li>';}).join('')+'</ul>':'')+
     '<h2>Valoración por Residual Land Value Method (RLVM)</h2>'+
     (r.rlvm ? 
