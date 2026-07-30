@@ -136,7 +136,7 @@ function instalarApp(){
 }
 </script>
 </head>
-<!-- VERSION-DEPLOY: VF96 — Diagnostico completo de subida de foto (captura error de columna/RLS y verifica que se guarde) -->
+<!-- VERSION-DEPLOY: VF97 — Resuelto conflicto de columnas duplicadas (es/en) en opportunities: escribe y lee en ambas -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -690,7 +690,7 @@ async function rMarketplace(){
         console.log('  Oportunidades con photo_url:',conFoto.length);
         if(conFoto.length>0)console.log('%c  Copia esta URL y ábrela en una pestaña nueva para ver si la foto carga: '+conFoto[0].photo_url,'color:#F2C94C');
       }
-      var r=await SUPA.from('opportunities').select('*').eq('active',true).order('created_at',{ascending:false});
+      var r=await SUPA.from('opportunities').select('*').or('active.eq.true,is_published.eq.true').order('created_at',{ascending:false});
       if(!r.error&&r.data)reales=r.data;
     }
   }catch(e){console.warn('marketplace load:',e);}
@@ -702,10 +702,10 @@ async function rMarketplace(){
   var cards='';
   if(reales.length>0){
     cards=reales.map(function(o,i){
-      var ti=o.titulo||o.ti||'Oportunidad';
-      var ty=o.tipo||o.ty||'Proyecto';
-      var inv=o.inversion_minima||o.inv||'A consultar';
-      var roi=o.roi||'—';
+      var ti=o.titulo||o.title||o.ti||'Oportunidad';
+      var ty=o.tipo||o.project_type||o.ty||'Proyecto';
+      var inv=o.inversion_minima||o.investment_label||o.inv||'A consultar';
+      var roi=o.roi||o.roi_label||'—';
       // Si el proyecto tiene foto, usarla como fondo de la tarjeta
       var bg=o.photo_url?('url('+o.photo_url+') center/cover no-repeat'):undefined;
       return pcard(i+1,ti,ty,inv,roi,undefined,bg,"Solicitar acceso →");
@@ -1340,7 +1340,7 @@ async function publishOpp(){
   var status=document.getElementById('opp-status');
   if(status)status.innerHTML='<div style="font-size:12px;color:#42A5F5">Guardando...</div>';
   try{
-    var r=await SUPA.from('opportunities').insert({titulo:ti,tipo:ty,inversion_minima:inv,roi:roi,status:st,active:false,created_at:new Date().toISOString()}).select().single();
+    var r=await SUPA.from('opportunities').insert({titulo:ti,title:ti,tipo:ty,project_type:ty,inversion_minima:inv,investment_label:inv,roi:roi,roi_label:roi,status:st,active:false,is_published:false,created_at:new Date().toISOString()}).select().single();
     if(r.error)throw r.error;
     if(status)status.innerHTML='<div style="font-size:12px;color:#2ECC71">Oportunidad creada. Estado: '+st+'</div>';
     if(document.getElementById('oti'))document.getElementById('oti').value='';
@@ -1415,7 +1415,7 @@ async function manageOppStatus(id,currentStatus){
   var newSt=prompt('Nuevo estado ('+options.join(' / ')+'):',currentStatus);
   if(!newSt||!options.includes(newSt))return;
   var active=newSt==='publicado';
-  await SUPA.from('opportunities').update({status:newSt,active:active}).eq('id',id);
+  await SUPA.from('opportunities').update({status:newSt,active:active,is_published:active}).eq('id',id);
   alert('Estado actualizado a: '+newSt+(active?' - Ahora visible en marketplace':''));
   rOpps();
 }
@@ -7771,15 +7771,18 @@ async function autoCreateOpportunity(land, result){
     var existing=await SUPA.from('opportunities').select('id').eq('land_id',land.id).single();
     if(existing.data)return; // Already exists
     var rlvm=result.rlvm||{};
+    var _titulo=land.name+' - '+land.province;
+    var _inv='US$ '+(rlvm.vrs?Math.round(rlvm.vrs/1000)+'K':'N/A');
+    var _roi=result.marketData?Math.round((result.marketData.margen_desarrollador||0.18)*100)+'%':'16%';
     await SUPA.from('opportunities').insert({
       land_id:land.id,
-      titulo:land.name+' - '+land.province,
-      tipo:'Residencial',
-      inversion_minima:'US$ '+(rlvm.vrs?Math.round(rlvm.vrs/1000)+'K':'N/A'),
-      roi:result.marketData?Math.round((result.marketData.margen_desarrollador||0.18)*100)+'%':'16%',
+      titulo:_titulo, title:_titulo,
+      tipo:'Residencial', project_type:'Residencial',
+      inversion_minima:_inv, investment_label:_inv,
+      roi:_roi, roi_label:_roi,
       score_wlc:score,
       status:'en_estructuracion',
-      active:false,
+      active:false, is_published:false,
       created_at:new Date().toISOString()
     });
     console.log('Oportunidad creada automaticamente para terreno score '+score);
