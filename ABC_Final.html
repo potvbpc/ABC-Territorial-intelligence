@@ -136,7 +136,7 @@ function instalarApp(){
 }
 </script>
 </head>
-<!-- VERSION-DEPLOY: VF94 — Explorador de oportunidades lee proyectos reales de Supabase (antes mostraba lista demo); muestra fotos -->
+<!-- VERSION-DEPLOY: VF95 — Diagnostico de fotos del marketplace (active/status/photo_url en consola) -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -674,6 +674,22 @@ async function rMarketplace(){
   var reales=[];
   try{
     if(typeof SUPA!=='undefined'){
+      // DIAGNÓSTICO (VF95): traer TODAS para ver estado y fotos
+      var rAll=await SUPA.from('opportunities').select('*').order('created_at',{ascending:false});
+      console.log('%c[MARKETPLACE] Diagnóstico de oportunidades:','font-weight:bold;color:#1565C0');
+      if(rAll.error){console.error('  Error al leer opportunities:',rAll.error);}
+      else{
+        console.log('  Total de oportunidades en la BD:',(rAll.data||[]).length);
+        (rAll.data||[]).forEach(function(o){
+          console.log('   • "'+(o.titulo||o.ti||'?')+'" | active:'+o.active+' | status:'+o.status+' | photo_url:'+(o.photo_url?o.photo_url:'(SIN FOTO)'));
+        });
+        var activas=(rAll.data||[]).filter(function(o){return o.active===true;});
+        console.log('  Oportunidades con active=true:',activas.length);
+        if(activas.length===0)console.log('%c  ⚠ Ninguna está activa. En el admin, usa "Gestionar" para activarlas.','color:#E74C3C;font-weight:bold');
+        var conFoto=(rAll.data||[]).filter(function(o){return o.photo_url;});
+        console.log('  Oportunidades con photo_url:',conFoto.length);
+        if(conFoto.length>0)console.log('%c  Copia esta URL y ábrela en una pestaña nueva para ver si la foto carga: '+conFoto[0].photo_url,'color:#F2C94C');
+      }
       var r=await SUPA.from('opportunities').select('*').eq('active',true).order('created_at',{ascending:false});
       if(!r.error&&r.data)reales=r.data;
     }
