@@ -136,7 +136,7 @@ function instalarApp(){
 }
 </script>
 </head>
-<!-- VERSION-DEPLOY: VF98 — Eliminado fallback demo en gestor de oportunidades (causaba id ficticio 1 en vez de UUID real) -->
+<!-- VERSION-DEPLOY: VF99 — Boton directo Publicar al explorador + indicador visual de estado publicado -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -1311,10 +1311,12 @@ function renderOppsAdmin(opps){
       +'<button data-id="'+(o.id||'')+'" class="opp-upload-btn" style="background:rgba(21,101,192,.15);border:1px solid rgba(21,101,192,.3);color:#42A5F5;padding:6px 4px;border-radius:6px;font-size:10px;cursor:pointer">Cargar fotos</button>'
       +'<button data-id="'+(o.id||'')+'" data-title="'+title.replace(/"/g,'&quot;')+'" data-inv="'+inv+'" data-roi="'+roi+'" data-tipo="'+tipo+'" class="opp-config-btn" style="background:rgba(242,201,76,.1);border:1px solid rgba(242,201,76,.3);color:#F2C94C;padding:6px 4px;border-radius:6px;font-size:10px;cursor:pointer">Configurar</button>'
       +'</div>'
-      +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px">'
+      +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-bottom:4px">'
       +'<button data-id="'+(o.id||'')+'" data-st="'+st+'" class="opp-manage-btn" style="background:rgba(46,204,113,.1);border:1px solid rgba(46,204,113,.3);color:#2ECC71;padding:6px 4px;border-radius:6px;font-size:10px;cursor:pointer">Gestionar</button>'
       +'<button data-id="'+(o.id||'')+'" data-title="'+title.replace(/"/g,'&quot;')+'" class="opp-delete-btn" style="background:rgba(231,76,60,.1);border:1px solid rgba(231,76,60,.3);color:#E74C3C;padding:6px 4px;border-radius:6px;font-size:10px;cursor:pointer">Eliminar</button>'
-      +'</div></div></div>';
+      +'</div>'
+      +'<button data-id="'+(o.id||'')+'" data-active="'+(o.active===true||o.is_published===true?'1':'0')+'" class="opp-publish-btn" style="width:100%;padding:7px 4px;border-radius:6px;font-size:10px;font-weight:700;cursor:pointer;border:1px solid '+((o.active===true||o.is_published===true)?'rgba(46,204,113,.5);background:rgba(46,204,113,.2);color:#2ECC71':'rgba(139,92,246,.5);background:rgba(139,92,246,.2);color:#8B5CF6')+'">'+((o.active===true||o.is_published===true)?'✓ Publicado (clic para retirar)':'▲ Publicar al explorador')+'</button>'
+      +'</div></div>';
   }).join('');
 
   // Wire events
@@ -1328,6 +1330,8 @@ function renderOppsAdmin(opps){
     if(mb){manageOppStatus(mb.dataset.id,mb.dataset.st);return;}
     var db=e.target.closest('.opp-delete-btn');
     if(db){eliminarOpp(db.dataset.id,db.dataset.title);return;}
+    var pb=e.target.closest('.opp-publish-btn');
+    if(pb){togglePublicarOpp(pb.dataset.id,pb.dataset.active==='1');return;}
   });
 }
 
@@ -1412,12 +1416,23 @@ async function eliminarOpp(id,titulo){
 
 async function manageOppStatus(id,currentStatus){
   var options=['en_estructuracion','estructurado','validado','publicado','rechazado'];
-  var labels=['En estructuracion','Estructurado','Validado - Publicar al marketplace','Rechazado'];
-  var newSt=prompt('Nuevo estado ('+options.join(' / ')+'):',currentStatus);
-  if(!newSt||!options.includes(newSt))return;
+  var newSt=prompt('Nuevo estado. Escribe una de estas opciones:\n\n'+options.join('\n')+'\n\n(Para que aparezca en el explorador de inversiones, usa: publicado)',currentStatus);
+  if(!newSt||!options.includes(newSt.trim())){if(newSt)alert('Estado no válido. Debe ser exactamente uno de: '+options.join(', '));return;}
+  newSt=newSt.trim();
   var active=newSt==='publicado';
-  await SUPA.from('opportunities').update({status:newSt,active:active,is_published:active}).eq('id',id);
-  alert('Estado actualizado a: '+newSt+(active?' - Ahora visible en marketplace':''));
+  var upd=await SUPA.from('opportunities').update({status:newSt,active:active,is_published:active}).eq('id',id).select();
+  if(upd.error){alert('Error al actualizar: '+upd.error.message);return;}
+  alert('✓ Estado actualizado a: '+newSt+(active?'\n\n✓ Ahora es VISIBLE en el explorador de inversiones.':'\n\n(No visible en el explorador — solo los "publicado" aparecen ahí.)'));
+  rOpps();
+}
+
+// Botón directo de publicar/despublicar (más simple que el prompt)
+async function togglePublicarOpp(id,estaActivo){
+  var nuevoEstado=estaActivo?'validado':'publicado';
+  var active=!estaActivo;
+  var upd=await SUPA.from('opportunities').update({status:nuevoEstado,active:active,is_published:active}).eq('id',id).select();
+  if(upd.error){alert('Error: '+upd.error.message);return;}
+  alert(active?'✓ Proyecto PUBLICADO. Ya aparece en el explorador de inversiones.':'Proyecto despublicado (retirado del explorador).');
   rOpps();
 }
 
