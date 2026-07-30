@@ -136,7 +136,7 @@ function instalarApp(){
 }
 </script>
 </head>
-<!-- VERSION-DEPLOY: VF91 — Exclusion dura de propuestas incompatibles en suelo de proteccion + fix redaccion recomendacion -->
+<!-- VERSION-DEPLOY: VF92 — Reporte detallado: programa arquitectonico respeta COS/uso sugerido; usos no edificatorios muestran programa de ocupacion -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -6294,24 +6294,48 @@ function verReportePropuestas(){
   var prov=land.province||'—';
   var lname=land.name||'Terreno';
 
-  // Programa arquitectónico estimado por propuesta (nivel detallado)
+  // Programa arquitectónico estimado por propuesta (VF92: respeta el uso sugerido y COS real)
+  var _us=r.uso_sugerido||null;
+  var _cosZona=(_us&&_us.cos_total!=null&&_us.cos_total!=='')?parseFloat(_us.cos_total)/100:null;
+  var _noUrbP=(_us&&_us.clasificacion&&_us.clasificacion.toLowerCase().indexOf('no urbanizable')>=0);
+  var _esProtP=(_us&&_us.uso_principal&&/protecci|riesgo|conservaci|frágil|fragil|hábitat|habitat|bosque|forestal/i.test(_us.uso_principal));
   function programaEstimado(p,idx){
-    var ratio = p.titulo.toLowerCase().indexOf('hotelero')>=0||p.titulo.toLowerCase().indexOf('turístic')>=0?0.45:
-                p.titulo.toLowerCase().indexOf('comercial')>=0||p.titulo.toLowerCase().indexOf('plaza')>=0?0.55:
-                p.titulo.toLowerCase().indexOf('equipamiento')>=0?0.40:
-                p.titulo.toLowerCase().indexOf('multifamiliar')>=0||p.titulo.toLowerCase().indexOf('torre')>=0?0.62:0.50;
+    var t=p.titulo.toLowerCase();
+    // Propuestas no edificatorias: mostrar programa de ocupación de suelo, no construcción
+    var esNoEdificatoria=/conservaci|reforestaci|solar|fotovoltaic|silvicultura|agro|forestal|carbono|ecoturis|pastos|cultivo|finca/.test(t);
+    if(esNoEdificatoria){
+      var areaProductiva=Math.round(area*0.85);
+      var areaServicios=Math.round(area*0.08);
+      return '<table style="margin:8px 0"><thead><tr><th colspan="2">Programa de ocupación estimado</th></tr></thead><tbody>'
+        +'<tr><td>Área total del lote</td><td style="text-align:right">'+area.toLocaleString()+' m²</td></tr>'
+        +'<tr><td>Área productiva / de aprovechamiento</td><td style="text-align:right">'+areaProductiva.toLocaleString()+' m²</td></tr>'
+        +'<tr><td>Área de servicios e infraestructura de apoyo</td><td style="text-align:right">'+areaServicios.toLocaleString()+' m²</td></tr>'
+        +'<tr><td>Ocupación edificada</td><td style="text-align:right">Mínima (bajo impacto)</td></tr>'
+        +'</tbody></table>'
+        +'<p style="font-size:8pt;color:#777;margin:4px 0">Este uso no requiere edificación intensiva; su valor proviene del aprovechamiento productivo o ambiental del suelo, coherente con la vocación de la zona.</p>';
+    }
+    // Propuestas edificatorias: usar el COS del uso sugerido si existe (tope real)
+    var ratioTitulo = t.indexOf('hotelero')>=0||t.indexOf('turístic')>=0?0.45:
+                t.indexOf('comercial')>=0||t.indexOf('plaza')>=0?0.55:
+                t.indexOf('equipamiento')>=0?0.40:
+                t.indexOf('multifamiliar')>=0||t.indexOf('torre')>=0?0.62:0.50;
+    // El COS de la zona es el tope legal; si es menor que el ratio típico, prevalece
+    var ratio=ratioTitulo;
+    var limitadoPorCos=false;
+    if(_cosZona!=null && _cosZona>0 && _cosZona<ratioTitulo){ ratio=_cosZona; limitadoPorCos=true; }
     var construible=Math.round(area*ratio);
-    var ocupacion=Math.round(area*0.55);
-    var verde=Math.round(area*0.20);
-    var unidades = p.titulo.toLowerCase().indexOf('residencial')>=0||p.titulo.toLowerCase().indexOf('villa')>=0||p.titulo.toLowerCase().indexOf('torre')>=0||p.titulo.toLowerCase().indexOf('multifamiliar')>=0
+    var ocupacion=Math.round(area*Math.min(0.55,ratio));
+    var verde=Math.round(area*(_noUrbP?0.60:0.20));
+    var unidades = (t.indexOf('residencial')>=0||t.indexOf('villa')>=0||t.indexOf('torre')>=0||t.indexOf('multifamiliar')>=0)
       ? Math.max(1,Math.round(construible/95)) : null;
     return '<table style="margin:8px 0"><thead><tr><th colspan="2">Programa estimado preliminar</th></tr></thead><tbody>'
       +'<tr><td>Área total del lote</td><td style="text-align:right">'+area.toLocaleString()+' m²</td></tr>'
-      +'<tr><td>Área construible estimada (ratio '+Math.round(ratio*100)+'%)</td><td style="text-align:right">'+construible.toLocaleString()+' m²</td></tr>'
+      +'<tr><td>Área construible estimada (ratio '+Math.round(ratio*100)+'%'+(limitadoPorCos?', según COS de la zona':'')+')</td><td style="text-align:right">'+construible.toLocaleString()+' m²</td></tr>'
       +'<tr><td>Huella de ocupación sugerida</td><td style="text-align:right">'+ocupacion.toLocaleString()+' m²</td></tr>'
       +'<tr><td>Áreas verdes / espacio abierto</td><td style="text-align:right">'+verde.toLocaleString()+' m²</td></tr>'
       +(unidades?'<tr><td>Unidades habitacionales estimadas</td><td style="text-align:right">~'+unidades+' uds</td></tr>':'')
-      +'</tbody></table>';
+      +'</tbody></table>'
+      +(limitadoPorCos?'<p style="font-size:8pt;color:#777;margin:4px 0">La edificabilidad se ajustó al Coeficiente de Ocupación del Suelo (COS '+Math.round(_cosZona*100)+'%) sugerido para la zona, no al máximo teórico del tipo de proyecto.</p>':'');
   }
 
   var content='<div style="text-align:center;margin-bottom:14px">'
