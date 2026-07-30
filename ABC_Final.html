@@ -136,7 +136,7 @@ function instalarApp(){
 }
 </script>
 </head>
-<!-- VERSION-DEPLOY: VF80 — Fase 1 usos sugeridos: el motor detecta el uso sugerido ABC segun ubicacion del terreno -->
+<!-- VERSION-DEPLOY: VF81 — Uso sugerido: deteccion flexible de la capa (por dimension o nombre) + diagnostico -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -3887,14 +3887,22 @@ async function obtenerUsoSugerido(){
     var geomLote=(ACTIVE_LAND&&ACTIVE_LAND.geojson)?ACTIVE_LAND.geojson:null;
     if(!geomLote||!geomLote.coordinates)return null;
 
-    // Cargar capa(s) de uso_sugerido (cache)
+    // Cargar capa(s) de uso sugerido (cache)
+    // Busca por dimension='uso_sugerido' O por nombre que contenga 'uso sugerido'
+    // (flexible, por si la capa se subió con otra dimensión)
     if(GEO_USOS_CACHE===null){
       if(typeof SUPA==='undefined')return null;
-      var r=await SUPA.from('geo_layers').select('id,name,dimension,features,source').eq('active',true).eq('dimension','uso_sugerido');
+      var r=await SUPA.from('geo_layers').select('id,name,dimension,features,source').eq('active',true);
       if(r.error){console.warn('uso_sugerido load:',r.error);GEO_USOS_CACHE=[];return null;}
-      GEO_USOS_CACHE=r.data||[];
+      // Filtrar: dimension uso_sugerido, o nombre que mencione uso sugerido
+      GEO_USOS_CACHE=(r.data||[]).filter(function(l){
+        var dim=(l.dimension||'').toLowerCase();
+        var nom=(l.name||'').toLowerCase();
+        return dim==='uso_sugerido'||dim==='usos_sugeridos'||nom.indexOf('uso sugerido')>=0||nom.indexOf('usos sugeridos')>=0||nom.indexOf('uso_sugerido')>=0;
+      });
+      console.log('[Uso sugerido] Capas candidatas encontradas:',GEO_USOS_CACHE.length,GEO_USOS_CACHE.map(function(l){return l.name+' (dim:'+l.dimension+')';}));
     }
-    if(!GEO_USOS_CACHE||GEO_USOS_CACHE.length===0)return null;
+    if(!GEO_USOS_CACHE||GEO_USOS_CACHE.length===0){console.log('[Uso sugerido] No se encontró capa de usos sugeridos. Revisa que esté activa y su nombre contenga "uso sugerido" o su dimension sea "uso_sugerido".');return null;}
 
     // Centroide del lote
     var landPoly=geomToTurfPoly(geomLote.type?geomLote:{type:'Polygon',coordinates:geomLote.coordinates});
