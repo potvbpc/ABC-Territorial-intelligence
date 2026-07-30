@@ -136,7 +136,7 @@ function instalarApp(){
 }
 </script>
 </head>
-<!-- VERSION-DEPLOY: VF95 — Diagnostico de fotos del marketplace (active/status/photo_url en consola) -->
+<!-- VERSION-DEPLOY: VF96 — Diagnostico completo de subida de foto (captura error de columna/RLS y verifica que se guarde) -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -1356,12 +1356,29 @@ async function uploadOppPhoto(id){
     var file=this.files[0];if(!file)return;
     var path='opportunities/'+id+'/'+Date.now()+'_'+file.name;
     try{
+      console.log('[Subir foto] id del proyecto:',id,'| tipo:',typeof id);
       var up=await SUPA.storage.from('documents').upload(path,file,{upsert:true});
-      if(up.error)throw up.error;
+      if(up.error){console.error('[Subir foto] Error de Storage:',up.error);throw up.error;}
       var url=SUPA.storage.from('documents').getPublicUrl(path).data.publicUrl;
-      await SUPA.from('opportunities').update({photo_url:url}).eq('id',id);
-      alert('Foto subida correctamente.');rOpps();
-    }catch(e){alert('Error: '+e.message);}
+      console.log('[Subir foto] URL pública generada:',url);
+      // El update que devuelve el registro actualizado (para ver si funcionó)
+      var upd=await SUPA.from('opportunities').update({photo_url:url}).eq('id',id).select();
+      console.log('[Subir foto] Resultado del update:',upd);
+      if(upd.error){
+        console.error('[Subir foto] ⚠ Error al guardar photo_url:',upd.error);
+        alert('La imagen se subió al almacenamiento, pero NO se pudo vincular al proyecto.\n\nError: '+(upd.error.message||upd.error.hint||JSON.stringify(upd.error))+'\n\nCausa probable: falta la columna photo_url en la tabla, o falta la política RLS de UPDATE. Revisa la consola para el detalle.');
+        return;
+      }
+      if(!upd.data||upd.data.length===0){
+        alert('La imagen se subió, pero el update no afectó ninguna fila (posible problema de permisos RLS de UPDATE en opportunities).');
+        return;
+      }
+      console.log('[Subir foto] ✓ photo_url guardada:',upd.data[0].photo_url);
+      alert('✓ Foto subida y vinculada correctamente.');rOpps();
+    }catch(e){
+      console.error('[Subir foto] Excepción:',e);
+      alert('Error al subir la foto: '+(e.message||JSON.stringify(e)));
+    }
   };
   input.click();
 }
