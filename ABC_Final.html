@@ -136,7 +136,7 @@ function instalarApp(){
 }
 </script>
 </head>
-<!-- VERSION-DEPLOY: VF90 — Coherencia: justificaciones contextuales por clasificacion, ausencia de POT explicita, propuestas coherentes con proteccion/riesgo -->
+<!-- VERSION-DEPLOY: VF91 — Exclusion dura de propuestas incompatibles en suelo de proteccion + fix redaccion recomendacion -->
 <body>
 
 <div id="smart-bg"><canvas id="sc-canvas"></canvas></div>
@@ -4721,7 +4721,7 @@ async function fetchGisMetrics(){
       else if(t==='Infraestructura'||t==='Servicios básicos'||t==='Red eléctrica'||t==='Acueductos y alcantarillado'||t==='Telecomunicaciones'){score=cap(s.serv);desc='Infraestructura · '+province;}
       else if(t==='Riesgo'||t==='Zonas inundables'||t==='Pendientes vulnerables'||t==='Fallas sísmicas'||t==='Riesgo por huracanes'){score=cap(s.riesgo+af);desc='Riesgo ambiental · '+province;}
       else if(t==='Restriccion critica'||t==='Áreas protegidas SINAP'||t==='Humedales protegidos'||t==='Parques nacionales'||t==='Playas y litoral protegido'){score=cap(s.prot);desc='Restricción crítica · '+province;}
-      else if(t==='Normativa propuesta'||t==='Zonificación urbana'||t==='Densidad permitida'||t==='Alturas máximas'||t==='Retiros y servidumbres'||t==='Uso de suelo oficial'){score=cap(s.norm);desc=uso+' · Normativa · '+province;}
+      else if(t==='Normativa propuesta'||t==='Zonificación urbana'||t==='Densidad permitida'||t==='Alturas máximas'||t==='Retiros y servidumbres'||t==='Uso de suelo oficial'){score=cap(s.norm);var _usoNorm=(window._usoSugeridoActual&&window._usoSugeridoActual.uso_principal)?window._usoSugeridoActual.uso_principal:uso;desc=_usoNorm+' · Normativa · '+province;}
       else{score=cap(60+bonus);desc=l.n+' · '+province;}
       // Si la capa tiene archivo GeoJSON real, añadir nota
       if(l.file_url){desc+=' [GeoJSON cargado]';}
@@ -5476,16 +5476,20 @@ function generarPropuestasProyecto(r){
     }
     // VF84: si el suelo es NO URBANIZABLE, la penalización es más severa
     var _noUrb=(r.uso_sugerido&&r.uso_sugerido.clasificacion&&r.uso_sugerido.clasificacion.toLowerCase().indexOf('no urbanizable')>=0);
+    // VF91: si el uso sugerido es de protección/riesgo/conservación, EXCLUIR del todo
+    // las propuestas de edificación intensiva (vivienda, residencial, comercial, turismo)
+    var _esProteccion=/protecci|riesgo|conservaci|frágil|fragil|hábitat|habitat|bosque|forestal/i.test(usoSug);
+    var _idsIncompatiblesProteccion={vivienda_social:1,multifamiliar:1,urbanizacion:1,complejo_turistico:1,villas:1,comercial:1,logistico:1,agroindustria:1};
     C.forEach(function(c){
       var coh=_coherenciaConUso(c);
       if(coh>0)c.fit=(c.fit||0)+18;      // bonus por coherencia
       else if(coh<0)c.fit=(c.fit||0)*(_noUrb?0.10:0.4); // penalización (más severa si no urbanizable)
+      // Exclusión dura: en suelo de protección, anular propuestas de edificación intensiva
+      if(_esProteccion&&_idsIncompatiblesProteccion[c.id]){c.fit=0;c._excluidoProteccion=true;}
       c._coherenciaUso=coh;
     });
-    // Recalcular el top con los fit ajustados
-    top.forEach(function(c){/* ya están en C, el fit se actualizó por referencia */});
     top.sort(function(a,b){return b.fit-a.fit;});
-    // Reconstruir el top tomando las 3 mejores tras el ajuste
+    // Reconstruir el top tomando las 3 mejores tras el ajuste (excluyendo fit<=0)
     var reordenado=C.slice().filter(function(c){return c.fit>0;}).sort(function(a,b){return b.fit-a.fit;}).slice(0,3);
     if(reordenado.length>0)top=reordenado;
   }
@@ -6898,7 +6902,7 @@ function verCertificado(){
         :sc>=55
         ?((r.rlvm&&r.rlvm.desarrollo_no_rentable)
           ?'El equipo técnico de ABC Territorial Intelligence recomienda evaluar '+(_ld.name||'el terreno')+' ('+((_ld.area_m2&&_ld.area_m2>0?Math.round(_ld.area_m2).toLocaleString()+' m²':'área no especificada'))+', '+(_ld.province||'—')+') con un enfoque distinto al desarrollo inmobiliario convencional. El análisis indica que, en esta zona, el precio de venta de producto terminado apenas supera el costo de construcción, por lo que un desarrollo para venta no genera margen suficiente. Sin embargo, el terreno conserva su valor de mercado actual (US$'+(r.rlvm.precio_suelo_m2||0)+'/m²) y resulta apto para usos de menor costo y mayor coherencia con su vocación: proyectos agroindustriales, energía renovable o aprovechamiento agropecuario. Se recomienda orientar la inversión hacia estas alternativas y validar el valor con una tasación CODIA/ITADO.'
-          :'El equipo técnico de ABC Territorial Intelligence recomienda REVISIÓN CONDICIONADA para '+(_ld.name||'el terreno')+' ('+((_ld.area_m2&&_ld.area_m2>0?Math.round(_ld.area_m2).toLocaleString()+' m²':'área no especificada'))+', '+(_ld.province||'—')+'). El terreno presenta potencial'+vrsTexto+', pero existen condiciones que deben atenderse antes de publicar. Se sugiere verificar las restricciones identificadas con MIMARENA, INDRHI y la Dirección de Catastro, y realizar un estudio de factibilidad ambiental complementario.')
+          :'El equipo técnico de ABC Territorial Intelligence recomienda REVISIÓN CONDICIONADA para '+(_ld.name||'el terreno')+' ('+((_ld.area_m2&&_ld.area_m2>0?Math.round(_ld.area_m2).toLocaleString()+' m²':'área no especificada'))+', '+(_ld.province||'—')+').'+(r.rlvm&&r.rlvm.VRS>0?(' Presenta un valor residual potencial de US$ '+r.rlvm.VRS.toLocaleString()+' (US$'+r.rlvm.VRS_m2.toLocaleString()+'/m²), pero'):' No obstante,')+' existen condiciones que deben atenderse antes de avanzar. Se sugiere verificar las restricciones identificadas con las autoridades competentes (ayuntamiento, MIMARENA, INDRHI, Catastro) y realizar un estudio de factibilidad complementario.')
         :'El equipo técnico de ABC Territorial Intelligence NO recomienda proceder con la estructuración de '+(_ld.name||'el terreno')+' ('+((_ld.area_m2&&_ld.area_m2>0?Math.round(_ld.area_m2).toLocaleString()+' m²':'área no especificada'))+', '+(_ld.province||'—')+') en este momento. El análisis con score de '+sc+'/100 revela restricciones críticas que comprometen su viabilidad para desarrollo e inversión. Se recomienda consultar con especialistas en gestión ambiental y regularización territorial antes de cualquier decisión.';
       }
       return '<div style="line-height:1.8;font-size:11pt;color:#333">'
